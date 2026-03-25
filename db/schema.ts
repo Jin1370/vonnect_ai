@@ -52,7 +52,7 @@ export const dubbingJobs = sqliteTable("dubbing_jobs", {
   status: text("status").notNull().default("PENDING"),
   dubbedFileUrl: text("dubbed_file_url"),
   errorMessage: text("error_message"),
-  // Re-dub 지원: 세그먼트/번역/Voice Clone ID 보관
+  // Re-dub support: Storage for segments/translations/Voice Clone ID
   segmentsJson: text("segments_json"),
   translationsJson: text("translations_json"),
   cloneVoiceMapJson: text("clone_voice_map_json"),

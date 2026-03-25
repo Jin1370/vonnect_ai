@@ -8,7 +8,7 @@ export default function LoginPage() {
             <div className="glass-panel">
                 <h1 className="premium-title">Vonnect AI</h1>
                 <p className="premium-subtitle">
-                    Dub your videos and audio into any language perfectly.
+                    Dub your videos and audio into any language.
                     <br /> Please login to get started.
                 </p>
 

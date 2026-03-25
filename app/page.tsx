@@ -24,7 +24,7 @@ export default async function Dashboard() {
                     Welcome, {session.user?.name}
                 </p>
 
-                {/* 클라이언트 컴포넌트로 워크스페이스(업로드 화면) 로드 */}
+                {/* Load workspace (upload screen) as a client component */}
                 <DubbingWorkspace />
             </div>
         </main>

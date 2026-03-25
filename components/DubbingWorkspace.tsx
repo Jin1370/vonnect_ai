@@ -16,7 +16,7 @@ import {
 } from "@heroicons/react/24/solid";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 
-// ── 단순화된 toBlobURL 헬퍼 (Next.js 빌드 에러 우회) ──
+// Simplified toBlobURL helper (bypass Next.js build error)
 async function toBlobURL(url: string, mimeType: string): Promise<string> {
     const res = await fetch(url);
     const buf = await res.arrayBuffer();
@@ -24,7 +24,7 @@ async function toBlobURL(url: string, mimeType: string): Promise<string> {
     return URL.createObjectURL(blob);
 }
 
-// 화자별 고유 색상 팔레트 (6색, 초과 시 순환)
+// Unique color palette per speaker (6 colors, cycled)
 const SPEAKER_COLORS = [
     "#6366f1", // Indigo
     "#0ea5e9", // Sky Blue
@@ -44,7 +44,7 @@ const PROCESSING_STEPS = [
     { key: "MIXING", label: "🎚️ Mixing audio..." },
 ];
 
-// [speaker_N] → { speakerIdx, content } 변환 헬퍼
+// [speaker_N] → { speakerIdx, content } conversion helper
 function formatSpeakerLines(
     text: string,
 ): { speakerIdx: number | null; content: string }[] {
@@ -80,7 +80,7 @@ interface Result {
     editableTranslations: EditableTranslation[];
 }
 
-// ── FFmpeg WASM 싱글턴 ──
+// FFmpeg WASM singleton
 let ffmpegInstance: FFmpeg | null = null;
 let ffmpegLoading = false;
 let ffmpegReady = false;
@@ -96,7 +96,7 @@ async function getFFmpeg(): Promise<FFmpeg> {
         try {
             if (typeof SharedArrayBuffer === "undefined") {
                 throw new Error(
-                    "SharedArrayBuffer를 지원하지 않는 브라우저이거나, COOP/COEP 헤더가 적용되지 않았습니다. 서버를 재시작해보세요.",
+                    "SharedArrayBuffer is not supported by this browser, or COOP/COEP headers are not applied. Please restart the server.",
                 );
             }
             const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
@@ -113,10 +113,10 @@ async function getFFmpeg(): Promise<FFmpeg> {
             ffmpegReady = true;
         } catch (e: any) {
             ffmpegLoading = false;
-            throw new Error(`FFmpeg 로드 실패: ${e?.message || String(e)}`);
+            throw new Error(`FFmpeg Load Failed: ${e?.message || String(e)}`);
         }
     } else {
-        // 이미 로딩 중이면 대기
+        // Wait if already loading
         while (!ffmpegReady) {
             await new Promise((r) => setTimeout(r, 100));
         }
@@ -124,7 +124,7 @@ async function getFFmpeg(): Promise<FFmpeg> {
     return ffmpegInstance;
 }
 
-// 60초 초과 파일을 클라이언트에서 크롭
+// Crop files exceeding 60s on the client
 async function cropTo60s(
     file: File,
     onProgress?: (msg: string) => void,
@@ -152,7 +152,7 @@ async function cropTo60s(
         ]);
 
         if (execResult !== 0) {
-            throw new Error(`FFmpeg 변환 프로세스 실패 (코드: ${execResult})`);
+            throw new Error(`FFmpeg conversion process failed (Code: ${execResult})`);
         }
 
         const data = await ff.readFile(outputName);
@@ -170,7 +170,7 @@ async function cropTo60s(
     }
 }
 
-// 파일 재생 시간 감지 (HTMLMediaElement 이용)
+// Detect media duration using HTMLMediaElement
 function getMediaDuration(file: File): Promise<number> {
     return new Promise((resolve) => {
         const url = URL.createObjectURL(file);
@@ -202,7 +202,7 @@ export default function DubbingWorkspace() {
     const [errorLine, setErrorLine] = useState("");
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // 탭 닫기 시 Voice Clone cleanup
+    // Voice Clone cleanup on tab close
     useEffect(() => {
         if (!result?.jobId) return;
         const jobId = result.jobId;
@@ -228,7 +228,7 @@ export default function DubbingWorkspace() {
             setCropStatus("");
             setCroppedFile(null);
 
-            // 60초 초과 여부 확인 → 자동 크롭
+            // Check for 60s exceedance → Auto crop
             const duration = await getMediaDuration(f);
             if (duration > 60) {
                 setCropStatus("preparing");
@@ -308,7 +308,7 @@ export default function DubbingWorkspace() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
-            // 미디어URL만 교체, 나머지 결과는 유지
+            // Swap media URL only, keep other results
             setResult((prev: Result | null) =>
                 prev
                     ? {
@@ -334,7 +334,7 @@ export default function DubbingWorkspace() {
 
     return (
         <div style={{ marginTop: "1.5rem", textAlign: "left" }}>
-            {/* 업로드 패널 */}
+            {/* Upload Panel */}
             {!result && (
                 <div
                     style={{
@@ -818,11 +818,11 @@ export default function DubbingWorkspace() {
                                 style={{
                                     display: "flex",
                                     flexDirection: "column",
-                                    gap: "0.75rem", // 대사 줄 간 간격 줄임
+                                    gap: "0.75rem", // Reduce spacing between lines
                                 }}
                             >
                                 {result.editableTranslations.map((item, i) => {
-                                    if (!item.original.trim()) return null; // 빈 공백 세그먼트는 화면에서 완전 제거
+                                    if (!item.original.trim()) return null; // Remove empty segments from the view
 
                                     const spkIdx = parseInt(
                                         item.speaker.replace("speaker_", ""),
@@ -840,7 +840,7 @@ export default function DubbingWorkspace() {
                                                 display: "flex",
                                                 gap: "0.8rem",
                                                 alignItems: "flex-start",
-                                                padding: "0.75rem", // 내부 상하좌우 여백 줄임
+                                                padding: "0.75rem", // Reduce inner padding
                                                 background:
                                                     "rgba(255,255,255,0.5)",
                                                 borderRadius: "12px",

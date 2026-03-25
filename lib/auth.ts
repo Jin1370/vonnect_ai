@@ -6,7 +6,7 @@ import { users, accounts, sessions, verificationTokens, whitelist } from "@/db/s
 import { eq } from "drizzle-orm";
 
 export const authOptions: NextAuthOptions = {
-  // @ts-ignore : next-auth v4와 auth.js 어댑터 간의 버전 타입 호환 무시
+  // @ts-ignore : Ignore type incompatibility between next-auth v4 and auth.js adapter
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
@@ -24,21 +24,21 @@ export const authOptions: NextAuthOptions = {
       if (!user.email) return false;
 
       try {
-        // 방금 만든 Turso DB의 whitelist 테이블에서 이메일 일치 여부 검사
+        // Check if email exists in the Turso DB whitelist table
         const allowedList = await db
           .select()
           .from(whitelist)
           .where(eq(whitelist.email, user.email))
           .limit(1);
 
-        // 화이트리스트에 없는 사용자는 커스텀 거부 페이지로 튕겨냅니다.
+        // Redirect unauthorized users to custom access denied page.
         if (allowedList.length === 0) {
           return "/unauthorized";
         }
         
         return true; 
       } catch (error) {
-        console.error("화이트리스트 인증 중 DB 에러:", error);
+        console.error("DB error during whitelist authentication:", error);
         return false;
       }
     },
@@ -53,9 +53,9 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: "/login",
-    error: "/unauthorized", // 접근 거부 혹은 에러 시 가는 페이지 표기
+    error: "/unauthorized", // Page to redirect on access denial or error
   },
   session: {
-    strategy: "jwt", // 인증 세션을 토큰 기반으로 관리하여 속도 최적화
+    strategy: "jwt", // Manage auth sessions via tokens for performance optimization
   },
 };

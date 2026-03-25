@@ -8,7 +8,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 
-// 빌드 타임의 모듈 참조 에러를 방지하기 위해 런타임에 동적으로 import
+// Dynamic import at runtime to prevent module reference errors during build
 const getFFmpeg = () => {
   const ffmpeg = require("fluent-ffmpeg");
   const ffmpegStatic = require("ffmpeg-static");
@@ -18,7 +18,7 @@ const getFFmpeg = () => {
   return ffmpeg;
 };
 
-// ── 공유 유틸 재임포트 (route.ts와 동일한 헬퍼) ──
+// Shared utility re-import (same helpers as route.ts)
 async function extractAudioFromVideo(videoPath: string, outputAudioPath: string): Promise<void> {
   const ffmpeg = getFFmpeg();
   return new Promise((resolve, reject) => {
@@ -28,7 +28,7 @@ async function extractAudioFromVideo(videoPath: string, outputAudioPath: string)
       .audioBitrate("128k")
       .output(outputAudioPath)
       .on("end", () => resolve())
-      .on("error", (err: Error) => reject(new Error(`오디오 추출 실패: ${err.message}`)))
+      .on("error", (err: Error) => reject(new Error(`Failed to extract audio: ${err.message}`)))
       .run();
   });
 }
@@ -124,7 +124,7 @@ async function mergeAudioIntoVideo(videoPath: string, audioPath: string, outputP
       .outputOptions(["-c:v copy", "-c:a aac", "-map 0:v:0", "-map 1:a:0", "-shortest"])
       .output(outputPath)
       .on("end", () => resolve())
-      .on("error", (err: Error) => reject(new Error(`비디오 합성 실패: ${err.message}`)))
+      .on("error", (err: Error) => reject(new Error(`Failed to merge video: ${err.message}`)))
       .run();
   });
 }
@@ -137,7 +137,7 @@ function isVideoFile(file: File): boolean {
 
 export async function POST(request: Request) {
   const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
-  if (!ELEVENLABS_API_KEY) return NextResponse.json({ error: "API 키 누락" }, { status: 500 });
+  if (!ELEVENLABS_API_KEY) return NextResponse.json({ error: "Missing API key" }, { status: 500 });
 
   const session = await getServerSession(authOptions);
   let userId = (session?.user as any)?.id;
@@ -154,21 +154,21 @@ export async function POST(request: Request) {
     const file = formData.get("audio_file") as File;
 
     if (!jobId || !editedTranslationsRaw || !file)
-      return NextResponse.json({ error: "job_id, edited_translations, audio_file 필수" }, { status: 400 });
+      return NextResponse.json({ error: "job_id, edited_translations, audio_file are required" }, { status: 400 });
 
-    // DB에서 기존 작업 로드
+    // Load existing job from DB
     const [job] = await db.select().from(dubbingJobs).where(eq(dubbingJobs.id, jobId)).limit(1);
-    if (!job || job.userId !== userId) return NextResponse.json({ error: "작업을 찾을 수 없는 또는 권한 없음" }, { status: 404 });
+    if (!job || job.userId !== userId) return NextResponse.json({ error: "Job not found or unauthorized" }, { status: 404 });
 
     const segments: Segment[] = JSON.parse(job.segmentsJson ?? "[]");
     const speakerVoiceMap: Record<string, string> = JSON.parse(job.cloneVoiceMapJson ?? "{}");
     const editedTranslations: string[] = JSON.parse(editedTranslationsRaw);
 
-    if (segments.length === 0) return NextResponse.json({ error: "저장된 세그먼트 데이터 없음 (재업로드 필요)" }, { status: 400 });
+    if (segments.length === 0) return NextResponse.json({ error: "No stored segment data (re-upload required)" }, { status: 400 });
 
     const totalDuration = segments[segments.length - 1].end;
 
-    // 원본 파일 작업 디렉터리 준비
+    // Prepare original file work directory
     const isVideo = isVideoFile(file);
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
@@ -181,7 +181,7 @@ export async function POST(request: Request) {
     const MIN_CLIP_DURATION = 0.15;
     const clips: { buffer: Buffer; start: number; duration: number }[] = [];
 
-    // 세그먼트별 TTS 또는 원본 오디오 추출
+    // Per-segment TTS or original audio extraction
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
       const segDuration = seg.end - seg.start;
@@ -197,7 +197,7 @@ export async function POST(request: Request) {
           const clipBuf = await fs.readFile(clipPath);
           if (clipBuf.length > 1000) clips.push({ buffer: clipBuf, start: seg.start, duration: segDuration });
         } catch (e) {
-          console.warn(`소리 효과 추출 실패 무시: ${seg.text}`, e);
+          console.warn(`Ignore sound effect extraction failure: ${seg.text}`, e);
         }
         continue;
       }
@@ -215,7 +215,7 @@ export async function POST(request: Request) {
           body: JSON.stringify({ text: translated, model_id: "eleven_multilingual_v2" }),
         }
       );
-      if (!ttsRes.ok) throw new Error(`TTS 실패 (${seg.speaker}): ${await ttsRes.text()}`);
+      if (!ttsRes.ok) throw new Error(`TTS failed (${seg.speaker}): ${await ttsRes.text()}`);
       clips.push({ buffer: Buffer.from(await ttsRes.arrayBuffer()), start: seg.start, duration: segDuration });
     }
 
@@ -241,7 +241,7 @@ export async function POST(request: Request) {
 
     await fs.rm(workDir, { recursive: true, force: true });
 
-    // DB에 갱신된 번역본 저장
+    // Save updated translation to DB
     await db.update(dubbingJobs)
       .set({ translationsJson: JSON.stringify(editedTranslations) })
       .where(eq(dubbingJobs.id, jobId));
@@ -254,6 +254,6 @@ export async function POST(request: Request) {
     });
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "알 수 없는 에러" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Unknown error" }, { status: 500 });
   }
 }
