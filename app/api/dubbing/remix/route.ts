@@ -5,11 +5,14 @@ import { db } from "@/db";
 import { dubbingJobs, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import ffmpeg from "fluent-ffmpeg";
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 import { promises as fs } from "fs";
 
-if (ffmpegStatic) {
-  ffmpeg.setFfmpegPath(ffmpegStatic);
+// Vercel 등 서버리스 환경에서 바이너리를 더 잘 찾기 위해 installer 우선 사용
+const ffmpegPath = ffmpegInstaller.path || ffmpegStatic;
+if (ffmpegPath) {
+  ffmpeg.setFfmpegPath(ffmpegPath);
 }
 import path from "path";
 import os from "os";
