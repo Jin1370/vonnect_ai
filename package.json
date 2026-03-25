@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.1",
+    "@heroicons/react": "^2.2.0",
     "@libsql/client": "^0.17.2",
     "drizzle-orm": "^0.45.1",
     "fluent-ffmpeg": "^2.1.3",
