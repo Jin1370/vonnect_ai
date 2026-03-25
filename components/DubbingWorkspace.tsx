@@ -341,7 +341,7 @@ export default function DubbingWorkspace() {
             {!result && (
                 <div
                     style={{
-                        padding: "2rem",
+                        padding: "var(--inner-padding)",
                         background: "rgba(255,255,255,0.8)",
                         borderRadius: "24px",
                         border: file
@@ -490,7 +490,7 @@ export default function DubbingWorkspace() {
                         !isProcessing && (
                             <div
                                 style={{
-                                    marginTop: "2rem",
+                                    marginTop: "var(--section-gap)",
                                     display: "flex",
                                     gap: "1rem",
                                     flexWrap: "wrap",
@@ -561,8 +561,8 @@ export default function DubbingWorkspace() {
                     {isProcessing && (
                         <div
                             style={{
-                                marginTop: "2rem",
-                                padding: "1.5rem",
+                                marginTop: "var(--section-gap)",
+                                padding: "var(--inner-padding)",
                                 background: "rgba(99,102,241,0.03)",
                                 borderRadius: "16px",
                                 border: "1px solid rgba(99,102,241,0.1)",
@@ -666,7 +666,7 @@ export default function DubbingWorkspace() {
                 <div style={{ animation: "slideUpFade 0.6s ease-out" }}>
                     <div
                         style={{
-                            padding: "2rem",
+                            padding: "var(--inner-padding)",
                             background: "#ffffff",
                             borderRadius: "16px",
                         }}
@@ -769,8 +769,8 @@ export default function DubbingWorkspace() {
                         {/* Combined Transcript + Translation Panel */}
                         <div
                             style={{
-                                marginTop: "2rem",
-                                padding: "1.5rem",
+                                marginTop: "var(--section-gap)",
+                                padding: "var(--inner-padding)",
                                 background: "rgba(255,255,255,0.7)",
                                 borderRadius: "16px",
                                 border: "1px solid rgba(99, 102, 241, 0.15)",
@@ -948,11 +948,12 @@ export default function DubbingWorkspace() {
                         {/* Action Buttons */}
                         <div
                             style={{
-                                marginTop: "1.5rem",
+                                marginTop: "var(--section-gap)",
                                 display: "flex",
-                                gap: "1rem",
+                                gap: "0.8rem",
                                 justifyContent: "flex-end",
                                 alignItems: "center",
+                                flexWrap: "wrap",
                             }}
                         >
                             <button
