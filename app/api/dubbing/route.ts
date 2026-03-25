@@ -87,7 +87,7 @@ async function extractAudioClip(
       .audioBitrate("128k")
       .output(outputPath)
       .on("end", () => resolve())
-      .on("error", (err: Error) => reject(new Error(`원본 구간 추출 실패: ${err.message}`)))
+      .on("error", (err: Error) => reject(new Error(`Failed to extract original clip: ${err.message}`)))
       .run();
   });
 }
@@ -205,7 +205,7 @@ async function extractAudioFromVideo(videoPath: string, outputAudioPath: string)
       .audioBitrate("128k")
       .output(outputAudioPath)
       .on("end", () => resolve())
-      .on("error", (err: Error) => reject(new Error(`오디오 추출 실패: ${err.message}`)))
+      .on("error", (err: Error) => reject(new Error(`Failed to extract audio: ${err.message}`)))
       .run();
   });
 }
@@ -229,7 +229,7 @@ async function mergeAudioIntoVideo(
       ])
       .output(outputPath)
       .on("end", () => resolve())
-      .on("error", (err: Error) => reject(new Error(`비디오 합성 실패: ${err.message}`)))
+      .on("error", (err: Error) => reject(new Error(`Failed to merge video: ${err.message}`)))
       .run();
   });
 }
@@ -265,7 +265,7 @@ async function buildSpeakerSample(
       totalSecs += dur;
       if (totalSecs >= 180) break; // 최대 3분
     }
-    if (partPaths.length === 0) throw new Error("샘플 클립 없음");
+    if (partPaths.length === 0) throw new Error("No sample clips found");
 
     // 파트가 하나면 그대로 복사, 여럿이면 concat
     if (partPaths.length === 1) {
@@ -311,7 +311,7 @@ async function cloneVoice(
     headers: { "xi-api-key": apiKey },
     body: form,
   });
-  if (!res.ok) throw new Error(`Voice Clone 생성 실패: ${await res.text()}`);
+  if (!res.ok) throw new Error(`Failed to create Voice Clone: ${await res.text()}`);
   const data = await res.json();
   return data.voice_id as string;
 }
@@ -331,7 +331,7 @@ export async function POST(request: Request) {
 
   if (!OPENAI_API_KEY || !ELEVENLABS_API_KEY) {
     return NextResponse.json(
-      { error: "환경변수에 API 키가 누락되었습니다." },
+      { error: "Missing API keys in environment variables." },
       { status: 500 }
     );
   }
@@ -354,7 +354,7 @@ export async function POST(request: Request) {
     const file = formData.get("audio_file") as File;
     const targetLanguage = (formData.get("target_language") as string) || "en";
 
-    if (!file) return NextResponse.json({ error: "파일이 없습니다." }, { status: 400 });
+    if (!file) return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
 
     const isVideo = isVideoFile(file);
     const arrayBuffer = await file.arrayBuffer();
@@ -398,12 +398,12 @@ export async function POST(request: Request) {
       headers: { "xi-api-key": ELEVENLABS_API_KEY },
       body: sttForm,
     });
-    if (!sttRes.ok) throw new Error(`STT 실패: ${await sttRes.text()}`);
+    if (!sttRes.ok) throw new Error(`STT failed: ${await sttRes.text()}`);
     const sttData = await sttRes.json();
 
     // 단어 단위 타임스탬프로 발화 세그먼트 구성
     const words: ELWord[] = sttData.words ?? [];
-    if (words.length === 0) throw new Error("음성 텍스트를 추출하지 못했습니다.");
+    if (words.length === 0) throw new Error("Could not extract speech text.");
 
     const segments = buildSegments(words);
     const totalDuration = segments[segments.length - 1].end;
@@ -477,7 +477,7 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
       try {
         const samplePath = path.join(workDir, `sample_${speaker}.mp3`);
         const sampleSecs = await buildSpeakerSample(sourceAudioForSample, segs, samplePath);
-        console.log(`[VoiceClone] ${speaker}: ${sampleSecs.toFixed(1)}초 샘플 수집 완료`);
+        console.log(`[VoiceClone] ${speaker}: ${sampleSecs.toFixed(1)}s sample collected`);
         const cloneId = await cloneVoice(
           ELEVENLABS_API_KEY,
           `dub_${jobId.slice(0, 8)}_${speaker}`,
@@ -487,7 +487,7 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
         clonedVoiceIds.push(cloneId);
         console.log(`[VoiceClone] ${speaker} → Clone ID: ${cloneId}`);
       } catch (e) {
-        console.warn(`[VoiceClone] ${speaker} 복제 실패, Premade 폴백:`, e);
+        console.warn(`[VoiceClone] Failed to clone ${speaker}, falling back to premade:`, e);
         speakerVoiceMap[speaker] = FALLBACK_VOICES[fallbackIdx % FALLBACK_VOICES.length];
         fallbackIdx++;
       }
@@ -541,7 +541,7 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
           body: JSON.stringify({ text: translated, model_id: "eleven_multilingual_v2" }),
         }
       );
-      if (!ttsRes.ok) throw new Error(`TTS 실패 (${seg.speaker}): ${await ttsRes.text()}`);
+      if (!ttsRes.ok) throw new Error(`TTS failed (${seg.speaker}): ${await ttsRes.text()}`);
 
       clips.push({
         buffer: Buffer.from(await ttsRes.arrayBuffer()),
@@ -629,7 +629,7 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
         .set({ status: "FAILED", errorMessage: error.message })
         .where(eq(dubbingJobs.id, jobId));
     return NextResponse.json(
-      { error: error.message || "알 수 없는 에러" },
+      { error: error.message || "Unknown error" },
       { status: 500 }
     );
   }

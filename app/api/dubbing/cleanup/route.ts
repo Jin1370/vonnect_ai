@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       .set({ cloneVoiceMapJson: null, segmentsJson: null, translationsJson: null })
       .where(eq(dubbingJobs.id, jobId));
 
-    console.log(`[Cleanup] Job ID ${jobId} 의 Voice Clone(${cloneIds.length}개) 및 DB 캐시가 삭제되었습니다.`);
+    console.log(`[Cleanup] Voice Clones (${cloneIds.length}) and DB cache for Job ID ${jobId} have been deleted.`);
 
   } catch {
     // cleanup은 조용히 실패
