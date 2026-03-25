@@ -8,8 +8,8 @@ export default function LoginPage() {
             <div className="glass-panel">
                 <h1 className="premium-title">Vonnect AI</h1>
                 <p className="premium-subtitle">
-                    비디오와 오디오를 원하는 언어로 완벽하게 더빙하세요.
-                    <br /> 시작하려면 로그인해야 합니다.
+                    Dub your videos and audio into any language perfectly.
+                    <br /> Please login to get started.
                 </p>
 
                 <button
@@ -41,7 +41,7 @@ export default function LoginPage() {
                             />
                         </g>
                     </svg>
-                    Google 계정으로 계속하기
+                    Continue with Google
                 </button>
             </div>
         </main>

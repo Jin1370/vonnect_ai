@@ -5,7 +5,12 @@ import { db } from "@/db";
 import { dubbingJobs, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import ffmpeg from "fluent-ffmpeg";
+import ffmpegStatic from "ffmpeg-static";
 import { promises as fs } from "fs";
+
+if (ffmpegStatic) {
+  ffmpeg.setFfmpegPath(ffmpegStatic);
+}
 import path from "path";
 import os from "os";
 
