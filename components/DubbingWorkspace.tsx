@@ -89,9 +89,6 @@ async function getFFmpeg(): Promise<FFmpeg> {
     if (ffmpegReady && ffmpegInstance) return ffmpegInstance;
     if (!ffmpegInstance) {
         ffmpegInstance = new FFmpeg();
-        ffmpegInstance.on("log", ({ message }) => {
-            console.log("[FFmpeg]", message);
-        });
     }
 
     if (!ffmpegLoading) {

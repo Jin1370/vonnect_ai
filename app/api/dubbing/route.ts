@@ -477,7 +477,6 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
       try {
         const samplePath = path.join(workDir, `sample_${speaker}.mp3`);
         const sampleSecs = await buildSpeakerSample(sourceAudioForSample, segs, samplePath);
-        console.log(`[VoiceClone] ${speaker}: ${sampleSecs.toFixed(1)}s sample collected`);
         const cloneId = await cloneVoice(
           ELEVENLABS_API_KEY,
           `dub_${jobId.slice(0, 8)}_${speaker}`,
@@ -485,9 +484,7 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
         );
         speakerVoiceMap[speaker] = cloneId;
         clonedVoiceIds.push(cloneId);
-        console.log(`[VoiceClone] ${speaker} → Clone ID: ${cloneId}`);
       } catch (e) {
-        console.warn(`[VoiceClone] Failed to clone ${speaker}, falling back to premade:`, e);
         speakerVoiceMap[speaker] = FALLBACK_VOICES[fallbackIdx % FALLBACK_VOICES.length];
         fallbackIdx++;
       }
@@ -525,7 +522,7 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
             clips.push({ buffer: clipBuf, start: seg.start, duration: segDuration });
           }
         } catch (e) {
-          console.warn(`소리 효과 구간 추출 실패 (무시): ${seg.text} @ ${seg.start}-${seg.end}`, e);
+          // ignore error
         }
         continue;
       }
