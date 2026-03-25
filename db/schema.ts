@@ -30,19 +30,6 @@ export const accounts = sqliteTable("account", {
   compoundKey: primaryKey({ columns: [account.provider, account.providerAccountId] })
 }))
 
-export const sessions = sqliteTable("session", {
-  sessionToken: text("sessionToken").primaryKey(),
-  userId: text("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  expires: integer("expires", { mode: "timestamp_ms" }).notNull(),
-})
-
-export const verificationTokens = sqliteTable("verificationToken", {
-  identifier: text("identifier").notNull(),
-  token: text("token").notNull(),
-  expires: integer("expires", { mode: "timestamp_ms" }).notNull(),
-}, (vt) => ({
-  compoundKey: primaryKey({ columns: [vt.identifier, vt.token] })
-}))
 
 export const dubbingJobs = sqliteTable("dubbing_jobs", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

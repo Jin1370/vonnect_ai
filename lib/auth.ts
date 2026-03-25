@@ -2,7 +2,7 @@ import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "@/db";
-import { users, accounts, sessions, verificationTokens, whitelist } from "@/db/schema";
+import { users, accounts, whitelist } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export const authOptions: NextAuthOptions = {
@@ -10,8 +10,6 @@ export const authOptions: NextAuthOptions = {
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
-    sessionsTable: sessions,
-    verificationTokensTable: verificationTokens,
   }),
   providers: [
     GoogleProvider({
