@@ -10,14 +10,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 
-// ── 화자별 Voice ID 매핑 (무료 플랜에서 사용 가능한 premade 보이스) ──
-const SPEAKER_VOICES = [
-  "EXAVITQu4vr4xnSDxMaL", // Sarah     - 여성, 차분함
-  "IKne3meq5aSn9XLyUdCD", // Charlie   - 남성, 활기참
-  "JBFqnCBsd6RMkjVDRZzb", // George    - 남성, 따뜻함
-  "FGY2WhTYpPnrIDTdsKH5", // Laura     - 여성, 활발함
-  "CwhRBWXzGAHq8TQ4Fs17", // Roger     - 남성, 차분함
-];
+
 
 // ElevenLabs STT Diarization 응답 타입 정의
 interface ELWord {
@@ -241,7 +234,98 @@ async function mergeAudioIntoVideo(
   });
 }
 
+// ── 화자 발화 구간들을 ffmpeg concat으로 이어붙여 샘플 오디오 생성 ──
+// 목소리 복제 품질을 위해 최소 30초, 최대 3분 분량을 수집
+async function buildSpeakerSample(
+  sourcePath: string,
+  segments: { start: number; end: number }[],
+  outputPath: string,
+): Promise<number> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "sample-"));
+  try {
+    const partPaths: string[] = [];
+    let totalSecs = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const dur = segments[i].end - segments[i].start;
+      if (dur < 0.5) continue;
+      const p = path.join(tmpDir, `part_${i}.mp3`);
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(sourcePath)
+          .setStartTime(segments[i].start)
+          .setDuration(dur)
+          .noVideo()
+          .audioCodec("libmp3lame")
+          .audioBitrate("128k")
+          .output(p)
+          .on("end", () => resolve())
+          .on("error", (e: Error) => reject(e))
+          .run();
+      });
+      partPaths.push(p);
+      totalSecs += dur;
+      if (totalSecs >= 180) break; // 최대 3분
+    }
+    if (partPaths.length === 0) throw new Error("샘플 클립 없음");
+
+    // 파트가 하나면 그대로 복사, 여럿이면 concat
+    if (partPaths.length === 1) {
+      await fs.copyFile(partPaths[0], outputPath);
+    } else {
+      const listFile = path.join(tmpDir, "list.txt");
+      await fs.writeFile(listFile, partPaths.map((p) => `file '${p}'`).join("\n"));
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg()
+          .input(listFile)
+          .inputOptions(["-f", "concat", "-safe", "0"])
+          .audioCodec("libmp3lame")
+          .audioBitrate("128k")
+          .output(outputPath)
+          .on("end", () => resolve())
+          .on("error", (e: Error) => reject(e))
+          .run();
+      });
+    }
+    return totalSecs;
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+// ── ElevenLabs Instant Voice Clone 생성 → Clone Voice ID 반환 ──
+async function cloneVoice(
+  apiKey: string,
+  name: string,
+  samplePath: string,
+): Promise<string> {
+  const sampleBuf = await fs.readFile(samplePath);
+  const form = new FormData();
+  form.append("name", name);
+  form.append("description", "Auto-generated clone for dubbing");
+  form.append(
+    "files",
+    new Blob([sampleBuf], { type: "audio/mpeg" }),
+    path.basename(samplePath),
+  );
+  const res = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+    method: "POST",
+    headers: { "xi-api-key": apiKey },
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Voice Clone 생성 실패: ${await res.text()}`);
+  const data = await res.json();
+  return data.voice_id as string;
+}
+
+// ── 더빙 완료 후 Clone 보이스 삭제 (슬롯 반환) ──
+async function deleteVoice(apiKey: string, voiceId: string): Promise<void> {
+  await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
+    method: "DELETE",
+    headers: { "xi-api-key": apiKey },
+  }).catch(() => {}); // 삭제 실패는 무시
+}
+
 export async function POST(request: Request) {
+
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
   const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
@@ -364,22 +448,64 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
     });
 
     // ────────────────────────────────────────────────────────────────
-    // [STEP 3] ElevenLabs TTS — 화자별 다른 목소리로 세그먼트 합성
+    // [STEP 3-A] 화자별 발화 샘플 수집 → Instant Voice Clone 생성
     // ────────────────────────────────────────────────────────────────
     await db.update(dubbingJobs).set({ status: "SYNTHESIZING" }).where(eq(dubbingJobs.id, jobId));
 
-    // 화자 → 고정 voice index 매핑
-    const speakerVoiceMap: Record<string, string> = {};
-    let voiceIdx = 0;
+    const sourceAudioForSample = isVideo ? extractedAudioPath : origVideoPath;
+
+    // 화자별 발화 세그먼트 그루핑  
+    const speakerSegs: Record<string, { start: number; end: number }[]> = {};
     for (const seg of segments) {
-      if (!(seg.speaker in speakerVoiceMap)) {
-        speakerVoiceMap[seg.speaker] = SPEAKER_VOICES[voiceIdx % SPEAKER_VOICES.length];
-        voiceIdx++;
+      if (cleanText(seg.text).trim() === "") continue; // 소리 효과 제외
+      if (!speakerSegs[seg.speaker]) speakerSegs[seg.speaker] = [];
+      speakerSegs[seg.speaker].push({ start: seg.start, end: seg.end });
+    }
+
+    // 화자별 Clone Voice ID 생성 (실패 시 Premade 보이스로 폴백)
+    const FALLBACK_VOICES = [
+      "EXAVITQu4vr4xnSDxMaL", // Sarah
+      "IKne3meq5aSn9XLyUdCD", // Charlie
+      "JBFqnCBsd6RMkjVDRZzb", // George
+      "FGY2WhTYpPnrIDTdsKH5", // Laura
+    ];
+    const speakerVoiceMap: Record<string, string> = {};
+    const clonedVoiceIds: string[] = []; // 나중에 삭제할 Clone ID 목록
+    let fallbackIdx = 0;
+
+    for (const [speaker, segs] of Object.entries(speakerSegs)) {
+      try {
+        const samplePath = path.join(workDir, `sample_${speaker}.mp3`);
+        const sampleSecs = await buildSpeakerSample(sourceAudioForSample, segs, samplePath);
+        console.log(`[VoiceClone] ${speaker}: ${sampleSecs.toFixed(1)}초 샘플 수집 완료`);
+        const cloneId = await cloneVoice(
+          ELEVENLABS_API_KEY,
+          `dub_${jobId.slice(0, 8)}_${speaker}`,
+          samplePath,
+        );
+        speakerVoiceMap[speaker] = cloneId;
+        clonedVoiceIds.push(cloneId);
+        console.log(`[VoiceClone] ${speaker} → Clone ID: ${cloneId}`);
+      } catch (e) {
+        console.warn(`[VoiceClone] ${speaker} 복제 실패, Premade 폴백:`, e);
+        speakerVoiceMap[speaker] = FALLBACK_VOICES[fallbackIdx % FALLBACK_VOICES.length];
+        fallbackIdx++;
       }
     }
 
+    // Clone이 안 된 화자(소리 효과만 있는 화자 등)도 폴백 배정
+    for (const seg of segments) {
+      if (!(seg.speaker in speakerVoiceMap)) {
+        speakerVoiceMap[seg.speaker] = FALLBACK_VOICES[fallbackIdx % FALLBACK_VOICES.length];
+        fallbackIdx++;
+      }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // [STEP 3-B] 세그먼트별 TTS (Clone 또는 폴백 보이스 사용)
+    // ────────────────────────────────────────────────────────────────
     const clips: { buffer: Buffer; start: number; duration: number }[] = [];
-    const MIN_CLIP_DURATION = 0.15; // 0.15초 미만은 ffmpeg이 빈 파일 생성 가능 → 제외
+    const MIN_CLIP_DURATION = 0.15;
 
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
@@ -389,14 +515,13 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
       const isSoundSeg = cleanText(seg.text).trim() === "";
 
       if (isSoundSeg) {
-        // 소리 효과: 너무 짧은 구간은 원본 추출이 불안정하므로 건너뜀
         if (segDuration < MIN_CLIP_DURATION) continue;
         const clipPath = path.join(workDir, `sound_${i}.mp3`);
         const sourceForClip = isVideo ? extractedAudioPath : origVideoPath;
         try {
           await extractAudioClip(sourceForClip, seg.start, segDuration, clipPath);
           const clipBuf = await fs.readFile(clipPath);
-          if (clipBuf.length > 1000) { // 1KB 미만은 유효하지 않은 MP3로 간주, 제외
+          if (clipBuf.length > 1000) {
             clips.push({ buffer: clipBuf, start: seg.start, duration: segDuration });
           }
         } catch (e) {
@@ -405,9 +530,7 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
         continue;
       }
 
-      // TTS 구간: 원본 duration이 짧아도 무조건 합성 (필터 적용 안 함)
       if (!translated || !translated.trim()) continue;
-
 
       const voiceId = speakerVoiceMap[seg.speaker];
       const ttsRes = await fetch(
@@ -426,6 +549,11 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
         duration: segDuration,
       });
     }
+
+    // Clone 보이스 사용 완료 → 슬롯 반환을 위해 즉시 삭제 (비동기, 실패 무시)
+    Promise.all(clonedVoiceIds.map((id) => deleteVoice(ELEVENLABS_API_KEY, id)))
+      .catch(() => {});
+
 
     // ────────────────────────────────────────────────────────────────
     // [STEP 4] ffmpeg 믹싱 — 타임스탬프 기반 오디오 합성
