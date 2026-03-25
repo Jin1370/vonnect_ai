@@ -550,9 +550,7 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
       });
     }
 
-    // Clone 보이스 사용 완료 → 슬롯 반환을 위해 즉시 삭제 (비동기, 실패 무시)
-    Promise.all(clonedVoiceIds.map((id) => deleteVoice(ELEVENLABS_API_KEY, id)))
-      .catch(() => {});
+    // Re-dub를 위해 Clone 즉시 삭제 안 함 → DB에 Clone ID 맵 저장
 
 
     // ────────────────────────────────────────────────────────────────
@@ -583,8 +581,15 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
     // 임시 작업 디렉토리 정리
     await fs.rm(workDir, { recursive: true, force: true });
 
+    // Re-dub 지원: segments/translations/cloneVoiceMap을 DB에 저장
     await db.update(dubbingJobs)
-      .set({ status: "COMPLETED", dubbedFileUrl: "base64_encoded" })
+      .set({
+        status: "COMPLETED",
+        dubbedFileUrl: "base64_encoded",
+        segmentsJson: JSON.stringify(segments),
+        translationsJson: JSON.stringify(translatedSegments),
+        cloneVoiceMapJson: JSON.stringify(speakerVoiceMap),
+      })
       .where(eq(dubbingJobs.id, jobId));
 
     // 빈 라인 없이, 소리효과는 원본 그대로 표시
@@ -598,14 +603,24 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
       .map(({ s, t }) => `[${s.speaker}] ${t}`)
       .join("\n");
 
+    // Re-dub용: 세그먼트별 번역 텍스트 목록 (편집 가능하게 프론트에 전달)
+    const editableTranslations = segments.map((s, i) => ({
+      speaker: s.speaker,
+      original: s.text,
+      translated: translatedSegments[i] ?? "",
+      isSoundEffect: cleanText(s.text).trim() === "",
+    }));
+
     return NextResponse.json({
       success: true,
+      jobId,
       mediaUrl: `data:${resultMime};base64,${resultBase64}`,
       mediaType: isVideo ? "video" : "audio",
       fileExt: resultExt,
       transcript: transcriptSummary,
       translatedText: translatedSummary,
       speakerCount: Object.keys(speakerVoiceMap).length,
+      editableTranslations,
     });
 
   } catch (error: any) {
