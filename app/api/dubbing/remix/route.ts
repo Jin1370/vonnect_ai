@@ -4,21 +4,23 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/db";
 import { dubbingJobs, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
 import { promises as fs } from "fs";
-
-// Vercel 등 서버리스 환경에서 바이너리를 더 잘 찾기 위해 installer 우선 사용
-const ffmpegPath = ffmpegInstaller.path || ffmpegStatic;
-if (ffmpegPath) {
-  ffmpeg.setFfmpegPath(ffmpegPath);
-}
 import path from "path";
 import os from "os";
 
+// 빌드 타임의 모듈 참조 에러를 방지하기 위해 런타임에 동적으로 import
+const getFFmpeg = () => {
+  const ffmpeg = require("fluent-ffmpeg");
+  const ffmpegStatic = require("ffmpeg-static");
+  if (ffmpegStatic) {
+    ffmpeg.setFfmpegPath(ffmpegStatic);
+  }
+  return ffmpeg;
+};
+
 // ── 공유 유틸 재임포트 (route.ts와 동일한 헬퍼) ──
 async function extractAudioFromVideo(videoPath: string, outputAudioPath: string): Promise<void> {
+  const ffmpeg = getFFmpeg();
   return new Promise((resolve, reject) => {
     ffmpeg(videoPath)
       .noVideo()
@@ -32,6 +34,7 @@ async function extractAudioFromVideo(videoPath: string, outputAudioPath: string)
 }
 
 async function extractAudioClip(source: string, start: number, duration: number, output: string): Promise<void> {
+  const ffmpeg = getFFmpeg();
   return new Promise((resolve, reject) => {
     ffmpeg(source)
       .setStartTime(start)
@@ -96,6 +99,7 @@ async function mixAudioClips(
     const filterComplex = filterParts.join(";");
 
     await new Promise<void>((resolve, reject) => {
+      const ffmpeg = getFFmpeg();
       let f = ffmpeg();
       f = f.input(silencePath);
       for (const cp of clipPaths) f = f.input(cp);
@@ -113,6 +117,7 @@ async function mixAudioClips(
 }
 
 async function mergeAudioIntoVideo(videoPath: string, audioPath: string, outputPath: string): Promise<void> {
+  const ffmpeg = getFFmpeg();
   return new Promise((resolve, reject) => {
     ffmpeg()
       .input(videoPath).input(audioPath)

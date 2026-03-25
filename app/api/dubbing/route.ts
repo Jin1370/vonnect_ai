@@ -5,18 +5,19 @@ import { db } from "@/db";
 import { dubbingJobs, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import OpenAI from "openai";
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
 import { promises as fs } from "fs";
-
-// Vercel 등 서버리스 환경에서 바이너리를 더 잘 찾기 위해 installer 우선 사용
-const ffmpegPath = ffmpegInstaller.path || ffmpegStatic;
-if (ffmpegPath) {
-  ffmpeg.setFfmpegPath(ffmpegPath);
-}
 import path from "path";
 import os from "os";
+
+// 빌드 타임의 모듈 참조 에러를 방지하기 위해 런타임에 동적으로 import
+const getFFmpeg = () => {
+  const ffmpeg = require("fluent-ffmpeg");
+  const ffmpegStatic = require("ffmpeg-static");
+  if (ffmpegStatic) {
+    ffmpeg.setFfmpegPath(ffmpegStatic);
+  }
+  return ffmpeg;
+};
 
 
 
@@ -86,6 +87,7 @@ async function extractAudioClip(
   duration: number,
   outputPath: string,
 ): Promise<void> {
+  const ffmpeg = getFFmpeg();
   return new Promise((resolve, reject) => {
     ffmpeg(sourcePath)
       .setStartTime(start)
@@ -171,6 +173,7 @@ async function mixAudioClips(
 
     const filterComplex = filterParts.join(";");
 
+    const ffmpeg = getFFmpeg();
     await new Promise<void>((resolve, reject) => {
       const cmd = ffmpeg();
       for (const arg of inputArgs) {
@@ -206,6 +209,7 @@ function isVideoFile(file: File): boolean {
 
 // ── 비디오에서 오디오만 추출 (MP3) ──
 async function extractAudioFromVideo(videoPath: string, outputAudioPath: string): Promise<void> {
+  const ffmpeg = getFFmpeg();
   return new Promise((resolve, reject) => {
     ffmpeg(videoPath)
       .noVideo()
@@ -224,8 +228,9 @@ async function mergeAudioIntoVideo(
   audioPath: string,
   outputPath: string,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    ffmpeg()
+    const ffmpeg = getFFmpeg();
+    return new Promise((resolve, reject) => {
+      ffmpeg()
       .input(videoPath)
       .input(audioPath)
       .outputOptions([
@@ -257,6 +262,7 @@ async function buildSpeakerSample(
       const dur = segments[i].end - segments[i].start;
       if (dur < 0.5) continue;
       const p = path.join(tmpDir, `part_${i}.mp3`);
+      const ffmpeg = getFFmpeg();
       await new Promise<void>((resolve, reject) => {
         ffmpeg(sourcePath)
           .setStartTime(segments[i].start)
@@ -281,6 +287,7 @@ async function buildSpeakerSample(
     } else {
       const listFile = path.join(tmpDir, "list.txt");
       await fs.writeFile(listFile, partPaths.map((p) => `file '${p}'`).join("\n"));
+      const ffmpeg = getFFmpeg();
       await new Promise<void>((resolve, reject) => {
         ffmpeg()
           .input(listFile)
