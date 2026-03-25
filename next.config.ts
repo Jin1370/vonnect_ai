@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "100mb",
     },
   },
+  outputFileTracingIncludes: {
+    "/api/dubbing": ["./node_modules/ffmpeg-static/**/*"],
+    "/api/dubbing/remix": ["./node_modules/ffmpeg-static/**/*"],
+  },
   async headers() {
     return [
       {
