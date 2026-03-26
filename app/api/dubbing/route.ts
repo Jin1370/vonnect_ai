@@ -13,8 +13,13 @@ import os from "os";
 const getFFmpeg = () => {
   const ffmpeg = require("fluent-ffmpeg");
   const ffmpegStatic = require("ffmpeg-static");
+  const ffprobeStatic = require("ffprobe-static");
+  
   if (ffmpegStatic) {
     ffmpeg.setFfmpegPath(ffmpegStatic);
+  }
+  if (ffprobeStatic) {
+    ffmpeg.setFfprobePath(ffprobeStatic.path);
   }
   return ffmpeg;
 };
