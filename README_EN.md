@@ -102,16 +102,18 @@ Connect to `http://localhost:3000` in your browser.
 This project was built by strategically utilizing various state-of-the-art AI models within the **Google Antigravity** platform.
 
 #### 🛠️ AI Model Strategy
-| Model | Key Responsibility | Characteristics |
-| :--- | :--- | :--- |
-| **Claude 4.6 Sonnet** | Complex Logic & Backend Implementation | Exceptional reasoning for deep code analysis and refactoring. |
-| **Gemini 3.1 Pro** | Multi-modal Analysis & Deployment Fixes | Massive context handling for complex error resolution and redeployment logic. |
-| **Gemini 3 Flash** | UI Design & Documentation (README) | High-speed response for simple code edits and text-heavy tasks. |
+
+| Model                 | Key Responsibility                      | Characteristics                                                               |
+| :-------------------- | :-------------------------------------- | :---------------------------------------------------------------------------- |
+| **Claude 4.6 Sonnet** | Complex Logic & Backend Implementation  | Exceptional reasoning for deep code analysis and refactoring.                 |
+| **Gemini 3.1 Pro**    | Multi-modal Analysis & Deployment Fixes | Massive context handling for complex error resolution and redeployment logic. |
+| **Gemini 3 Flash**    | UI Design & Documentation (README)      | High-speed response for simple code edits and text-heavy tasks.               |
 
 #### 💡 Development Workflow Tips
+
 1.  **Antigravity Mode Optimization**:
-    *   **Planning Mode**: Used for complex tasks requiring architectural design and structured `implementation_plans`.
-    *   **Fast Mode**: Used for rapid development of simple features or style adjustments.
+    - **Planning Mode**: Used for complex tasks requiring architectural design and structured `implementation_plans`.
+    - **Fast Mode**: Used for rapid development of simple features or style adjustments.
 2.  **Selective Approval Process**: The greatest strength of Google Antigravity is the developer's ability to review every individual code change and **selectively approve only the desired modifications**, ensuring high code quality and absolute ownership.
 3.  **Agnostic Model Infrastructure**: Leveraged the flexibility to switch between first-party and third-party models (like Claude) to select the best tool for each specific technical challenge.
 

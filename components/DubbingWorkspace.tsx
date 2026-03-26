@@ -42,6 +42,7 @@ const PROCESSING_STEPS = [
     { key: "TRANSLATING", label: "🌐 Translating by speaker..." },
     { key: "SYNTHESIZING", label: "🔊 Synthesizing voices..." },
     { key: "MIXING", label: "🎚️ Mixing audio..." },
+    { key: "FINALIZING", label: "✨ Finalizing with 100% video quality..." },
 ];
 
 // [speaker_N] → { speakerIdx, content } conversion helper
@@ -124,62 +125,104 @@ async function getFFmpeg(): Promise<FFmpeg> {
     return ffmpegInstance;
 }
 
-// Preprocess (Crop/Compress) depending on duration and size
+// Preprocess (Crop video and/or Extract audio)
 async function preprocessFile(
     file: File,
     needsCrop: boolean,
-    needsCompress: boolean,
     onProgress?: (msg: string) => void,
-): Promise<File> {
+): Promise<{ videoFile: File; audioFile: File }> {
     try {
         onProgress?.("Loading FFmpeg...");
         const ff = await getFFmpeg();
         const ext = file.name.split(".").pop() ?? "mp4";
-        const inputName = `input.${ext}`;
-        const outputName = `processed.${ext}`;
+        const isVideo = file.type.startsWith("video") || ["mp4", "mov", "webm", "avi"].includes(ext);
 
-        onProgress?.("Analyzing File...");
+        const inputName = `input.${ext}`;
+        const outputVideoName = `processed_video.${ext}`;
+        const outputAudioName = `processed_audio.mp3`;
+
+        onProgress?.("Analyzing Media...");
         await ff.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
 
-        const args = ["-i", inputName];
+        // 1. Process Video (Crop if needed, else just copy)
+        // We use '-c copy' to preserve 100% quality and speed if just cropping.
+        const videoArgs = ["-i", inputName];
         if (needsCrop) {
-            onProgress?.("Cutting to 1 minute...");
-            args.push("-t", "60");
+            videoArgs.push("-t", "60");
         }
-        
-        // Always apply compression parameters if we are processing.
-        // This prevents a 3.6MB file from bloating to 6MB during re-encoding.
-        onProgress?.("Optimizing for Vercel...");
-        args.push(
-            "-vf", "scale=-2:480", 
-            "-c:v", "libx264", 
-            "-b:v", "500k", 
-            "-c:a", "aac", 
-            "-b:a", "64k", 
-            "-preset", "ultrafast", 
-            "-y", 
-            outputName
-        );
-
-        onProgress?.("Processing (may take a moment)...");
-        const execResult = await ff.exec(args);
-
-        if (execResult !== 0) {
-            throw new Error(`FFmpeg processing failed (Code: ${execResult})`);
+        if (isVideo) {
+            videoArgs.push("-c", "copy", "-map", "0:v:0", "-y", outputVideoName);
+        } else {
+            // If it's just audio, we don't need a video file
+            await ff.writeFile(outputVideoName, new Uint8Array(await file.arrayBuffer()));
         }
 
-        const data = await ff.readFile(outputName);
+        onProgress?.(needsCrop ? "Cropping Video..." : "Preparing Video...");
+        if (isVideo) await ff.exec(videoArgs);
+
+        // 2. Process Audio (Extract as MP3 for server upload)
+        const audioArgs = ["-i", inputName];
+        if (needsCrop) audioArgs.push("-t", "60");
+        audioArgs.push("-vn", "-acodec", "libmp3lame", "-b:a", "128k", "-y", outputAudioName);
+
+        onProgress?.("Extracting Audio...");
+        await ff.exec(audioArgs);
+
+        const videoData = isVideo ? await ff.readFile(outputVideoName) : await ff.readFile(inputName);
+        const audioData = await ff.readFile(outputAudioName);
+
+        // Cleanup
         ff.deleteFile(inputName).catch(() => {});
-        ff.deleteFile(outputName).catch(() => {});
+        if (isVideo) ff.deleteFile(outputVideoName).catch(() => {});
+        ff.deleteFile(outputAudioName).catch(() => {});
 
-        const mimeType =
-            file.type || (ext === "mp3" ? "audio/mpeg" : "video/mp4");
-        return new File([data as any], `processed_${file.name}`, {
-            type: mimeType,
-        });
+        return {
+            videoFile: new File([videoData as any], isVideo ? `cropped_${file.name}` : file.name, { type: isVideo ? "video/mp4" : file.type }),
+            audioFile: new File([audioData as any], "audio.mp3", { type: "audio/mpeg" }),
+        };
     } catch (e: any) {
         console.error("Preprocess error:", e);
         throw new Error(e?.message || String(e));
+    }
+}
+
+// Local Merge: Merge dubbed audio with original video in the browser
+async function mergeDubbedAudio(
+    videoFile: File,
+    audioBlob: Blob,
+    onProgress?: (msg: string) => void,
+): Promise<File> {
+    try {
+        onProgress?.("Merging Dubbed audio...");
+        const ff = await getFFmpeg();
+        const videoName = "input_video.mp4";
+        const audioName = "dubbed_audio.mp3";
+        const outputName = "final_dubbed.mp4";
+
+        await ff.writeFile(videoName, new Uint8Array(await videoFile.arrayBuffer()));
+        await ff.writeFile(audioName, new Uint8Array(await audioBlob.arrayBuffer()));
+
+        await ff.exec([
+            "-i", videoName,
+            "-i", audioName,
+            "-c:v", "copy", // No re-encoding for video! Preservation 100%
+            "-c:a", "aac",
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-shortest",
+            "-y",
+            outputName
+        ]);
+
+        const data = await ff.readFile(outputName);
+        ff.deleteFile(videoName).catch(() => {});
+        ff.deleteFile(audioName).catch(() => {});
+        ff.deleteFile(outputName).catch(() => {});
+
+        return new File([data as any], "dubbed_final.mp4", { type: "video/mp4" });
+    } catch (e: any) {
+        console.error("Merge error:", e);
+        throw new Error(`Merge failed: ${e.message}`);
     }
 }
 
@@ -204,7 +247,8 @@ function getMediaDuration(file: File): Promise<number> {
 
 export default function DubbingWorkspace() {
     const [file, setFile] = useState<File | null>(null);
-    const [croppedFile, setCroppedFile] = useState<File | null>(null);
+    const [processedVideo, setProcessedVideo] = useState<File | null>(null);
+    const [processedAudio, setProcessedAudio] = useState<File | null>(null);
     const [cropStatus, setCropStatus] = useState<string>("");
     const [lang, setLang] = useState("en");
     const [isProcessing, setIsProcessing] = useState(false);
@@ -239,35 +283,40 @@ export default function DubbingWorkspace() {
             setResult(null);
             setErrorLine("");
             setCropStatus("");
-            setCroppedFile(null);
+            setProcessedVideo(null);
+            setProcessedAudio(null);
+
             const duration = await getMediaDuration(f);
             const isTooLong = duration > 60;
-            const isTooLarge = f.size > 4.5 * 1024 * 1024;
 
-            if (isTooLong || isTooLarge) {
+            // Preprocess if > 60s OR if it's a video (to extract audio)
+            const isVideo = f.type.startsWith("video");
+            if (isTooLong || isVideo) {
                 setCropStatus("preparing");
                 try {
-                    const processed = await preprocessFile(
+                    const { videoFile, audioFile } = await preprocessFile(
                         f,
                         isTooLong,
-                        isTooLarge,
                         (msg: string) => setCropStatus(msg),
                     );
-                    setCroppedFile(processed);
+                    setProcessedVideo(videoFile);
+                    setProcessedAudio(audioFile);
                     setCropStatus("done");
                 } catch (err: any) {
                     setCropStatus("error");
-                    setErrorLine(`Processing failed: ${err.message}`);
+                    setErrorLine(`Preprocessing failed: ${err.message}`);
                 }
             } else {
-                setCroppedFile(f);
+                // For direct audio file under 60s
+                setProcessedAudio(f);
+                setProcessedVideo(f);
             }
         },
         [],
     );
 
     const handleDubbing = async () => {
-        const uploadFile = croppedFile ?? file;
+        const uploadFile = processedAudio; // ONLY upload audio
         if (!uploadFile) return;
         setIsProcessing(true);
         setResult(null);
@@ -289,12 +338,28 @@ export default function DubbingWorkspace() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
+
+            // POST-PROCESS: Merge dubbed audio with local video in browser
+            if (processedVideo && processedVideo.type.startsWith("video")) {
+                setStepIdx(PROCESSING_STEPS.length - 1); // Mark "FINALIZING" step
+                const dubbedAudioRes = await fetch(data.mediaUrl);
+                const dubbedAudioBlob = await dubbedAudioRes.blob();
+                
+                const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob, (msg) => 
+                    setErrorLine(msg)
+                );
+                
+                data.mediaUrl = URL.createObjectURL(finalVideo);
+                data.mediaType = "video";
+            }
+
             setResult(data);
             setEditedTranslations(
                 data.editableTranslations.map(
                     (t: EditableTranslation) => t.translated,
                 ),
             );
+            setErrorLine(""); // Clear status messages
         } catch (e: any) {
             setErrorLine(e.message);
         } finally {
@@ -305,7 +370,7 @@ export default function DubbingWorkspace() {
     };
 
     const handleRedub = async () => {
-        const uploadFile = croppedFile ?? file;
+        const uploadFile = processedAudio;
         if (!uploadFile || !result) return;
         setIsRedubbing(true);
         setErrorLine("");
@@ -325,7 +390,17 @@ export default function DubbingWorkspace() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
-            // Swap media URL only, keep other results
+
+            // POST-PROCESS for Remix
+            if (processedVideo && processedVideo.type.startsWith("video")) {
+                const dubbedAudioRes = await fetch(data.mediaUrl);
+                const dubbedAudioBlob = await dubbedAudioRes.blob();
+                const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob);
+                
+                data.mediaUrl = URL.createObjectURL(finalVideo);
+                data.mediaType = "video";
+            }
+
             setResult((prev: Result | null) =>
                 prev
                     ? {
@@ -986,7 +1061,8 @@ export default function DubbingWorkspace() {
                                     }
                                     setResult(null);
                                     setFile(null);
-                                    setCroppedFile(null);
+                                    setProcessedVideo(null);
+                                    setProcessedAudio(null);
                                     setCropStatus("");
                                 }}
                                 style={{
