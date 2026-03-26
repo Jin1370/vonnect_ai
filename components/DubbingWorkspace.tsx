@@ -41,8 +41,7 @@ const PROCESSING_STEPS = [
     },
     { key: "TRANSLATING", label: "🌐 Translating by speaker..." },
     { key: "SYNTHESIZING", label: "🔊 Synthesizing voices..." },
-    { key: "MIXING", label: "🎚️ Mixing audio..." },
-    { key: "FINALIZING", label: "✨ Finalizing with 100% video quality..." },
+    { key: "FINALIZING", label: "✨ Finalizing high-quality video..." },
 ];
 
 // [speaker_N] → { speakerIdx, content } conversion helper
@@ -256,6 +255,7 @@ export default function DubbingWorkspace() {
     const [stepIdx, setStepIdx] = useState(0);
     const [result, setResult] = useState<Result | null>(null);
     const [editedTranslations, setEditedTranslations] = useState<string[]>([]);
+    const [preprocessNeedsCrop, setPreprocessNeedsCrop] = useState(false);
     const [errorLine, setErrorLine] = useState("");
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -288,6 +288,7 @@ export default function DubbingWorkspace() {
 
             const duration = await getMediaDuration(f);
             const isTooLong = duration > 60;
+            setPreprocessNeedsCrop(isTooLong);
 
             // Preprocess if > 60s OR if it's a video (to extract audio)
             const isVideo = f.type.startsWith("video");
@@ -341,13 +342,11 @@ export default function DubbingWorkspace() {
 
             // POST-PROCESS: Merge dubbed audio with local video in browser
             if (processedVideo && processedVideo.type.startsWith("video")) {
-                setStepIdx(PROCESSING_STEPS.length - 1); // Mark "FINALIZING" step
+                setStepIdx(PROCESSING_STEPS.length - 1); // Mark "FINALIZING"
                 const dubbedAudioRes = await fetch(data.mediaUrl);
                 const dubbedAudioBlob = await dubbedAudioRes.blob();
                 
-                const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob, (msg) => 
-                    setCropStatus(msg) // Use cropStatus instead of errorLine
-                );
+                const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob); // No progress callback
                 
                 data.mediaUrl = URL.createObjectURL(finalVideo);
                 data.mediaType = "video";
@@ -502,10 +501,13 @@ export default function DubbingWorkspace() {
                         )}
                     </div>
 
-                    {/* Crop Status */}
+            {/* Crop Status - Only show for long videos */}
+            {file && (file.size / 1024 / 1024) > 0 && (
+                <>
                     {cropStatus &&
                         cropStatus !== "done" &&
-                        cropStatus !== "error" && (
+                        cropStatus !== "error" &&
+                        preprocessNeedsCrop && ( // Only show IF it actually needs cropping
                             <div
                                 style={{
                                     marginTop: "1rem",
@@ -544,7 +546,7 @@ export default function DubbingWorkspace() {
                                 />
                             </div>
                         )}
-                    {cropStatus === "done" && (
+                    {cropStatus === "done" && preprocessNeedsCrop && (
                         <div
                             style={{
                                 marginTop: "1rem",
@@ -575,6 +577,8 @@ export default function DubbingWorkspace() {
                             </span>
                         </div>
                     )}
+                </>
+            )}
 
                     {file &&
                         (cropStatus === "done" || cropStatus === "") &&
