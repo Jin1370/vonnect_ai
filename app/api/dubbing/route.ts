@@ -14,12 +14,18 @@ const getFFmpeg = () => {
   const ffmpeg = require("fluent-ffmpeg");
   const ffmpegStatic = require("ffmpeg-static");
   const ffprobeStatic = require("ffprobe-static");
+  const fs = require("fs");
   
   if (ffmpegStatic) {
     ffmpeg.setFfmpegPath(ffmpegStatic);
   }
-  if (ffprobeStatic) {
-    ffmpeg.setFfprobePath(ffprobeStatic.path);
+  if (ffprobeStatic && ffprobeStatic.path) {
+    // Vercel/NFT trace hack: Force Vercel to bundle the binary by referencing it via fs
+    try {
+      if (fs.existsSync(ffprobeStatic.path)) {
+        ffmpeg.setFfprobePath(ffprobeStatic.path);
+      }
+    } catch (e) {}
   }
   return ffmpeg;
 };
