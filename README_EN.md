@@ -97,13 +97,22 @@ Connect to `http://localhost:3000` in your browser.
 
 ---
 
-## 🤖 Coding Agent Usage & Know-how
+## 🤖 Coding Agent Insights & Best Practices
 
-This project was completed in a short time through collaboration with a **High-Performance AI Coding Agent (Antigravity)**. We share the know-how gained from developing together with AI.
+This project was built by strategically utilizing various state-of-the-art AI models within the **Google Antigravity** platform.
 
-1.  **Purpose-Oriented Pair Programming**: It provided the most powerful solutions when **specific technical problems** were defined for the AI, rather than just leaving the code to it.
-2.  **Repetitive UI Refinement**: The AI perfectly transformed abstract design requests like "apply a sophisticated theme and Glassmorphism" into CSS variables and Utility Classes, maximizing productivity.
-3.  **Acceleration of Debugging**: In case of WASM memory issues or log analysis, the AI shortened development time by more than 70% by analyzing thousands of lines of logs in real-time to pinpoint the cause.
-4.  **Global Localization**: Simplified the process of expanding to a global project by perfectly localizing interaction messages into English through AI.
+#### 🛠️ AI Model Strategy
+| Model | Key Responsibility | Characteristics |
+| :--- | :--- | :--- |
+| **Claude 4.6 Sonnet** | Complex Logic & Backend Implementation | Exceptional reasoning for deep code analysis and refactoring. |
+| **Gemini 3.1 Pro** | Multi-modal Analysis & Deployment Fixes | Massive context handling for complex error resolution and redeployment logic. |
+| **Gemini 3 Flash** | UI Design & Documentation (README) | High-speed response for simple code edits and text-heavy tasks. |
 
-> **Tip!** If you liked this repository, please press the **Star ⭐️** button at the top! We will continue to update more wonderful open-source projects created by the collaboration of AI and humans.
+#### 💡 Development Workflow Tips
+1.  **Antigravity Mode Optimization**:
+    *   **Planning Mode**: Used for complex tasks requiring architectural design and structured `implementation_plans`.
+    *   **Fast Mode**: Used for rapid development of simple features or style adjustments.
+2.  **Selective Approval Process**: The greatest strength of Google Antigravity is the developer's ability to review every individual code change and **selectively approve only the desired modifications**, ensuring high code quality and absolute ownership.
+3.  **Agnostic Model Infrastructure**: Leveraged the flexibility to switch between first-party and third-party models (like Claude) to select the best tool for each specific technical challenge.
+
+> **Tip!** If you liked this project, please press the **Star ⭐️** button at the top! We will continue to update more wonderful open-source projects created by the collaboration of AI and humans.
