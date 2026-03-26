@@ -272,7 +272,12 @@ export default function DubbingWorkspace() {
             );
         };
         window.addEventListener("beforeunload", handleUnload);
-        return () => window.removeEventListener("beforeunload", handleUnload);
+        window.addEventListener("pagehide", handleUnload);
+
+        return () => {
+            window.removeEventListener("beforeunload", handleUnload);
+            window.removeEventListener("pagehide", handleUnload);
+        };
     }, [result?.jobId]);
 
     const handleFileChange = useCallback(
