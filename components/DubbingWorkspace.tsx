@@ -124,9 +124,11 @@ async function getFFmpeg(): Promise<FFmpeg> {
     return ffmpegInstance;
 }
 
-// Crop files exceeding 60s on the client
-async function cropTo60s(
+// Preprocess (Crop/Compress) depending on duration and size
+async function preprocessFile(
     file: File,
+    needsCrop: boolean,
+    needsCompress: boolean,
     onProgress?: (msg: string) => void,
 ): Promise<File> {
     try {
@@ -134,25 +136,29 @@ async function cropTo60s(
         const ff = await getFFmpeg();
         const ext = file.name.split(".").pop() ?? "mp4";
         const inputName = `input.${ext}`;
-        const outputName = `cropped.${ext}`;
+        const outputName = `processed.${ext}`;
 
         onProgress?.("Analyzing File...");
         await ff.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
 
-        onProgress?.("Cutting to 1 minute...");
-        const execResult = await ff.exec([
-            "-i",
-            inputName,
-            "-t",
-            "60",
-            "-c",
-            "copy",
-            "-y",
-            outputName,
-        ]);
+        const args = ["-i", inputName];
+        if (needsCrop) {
+            onProgress?.("Cutting to 1 minute...");
+            args.push("-t", "60");
+        }
+        if (needsCompress) {
+            onProgress?.("Optimizing size...");
+            args.push("-vf", "scale=-2:480", "-b:v", "500k", "-b:a", "64k");
+        }
+
+        // Always use re-encoding if processing to ensure precise cuts
+        args.push("-c:v", "libx264", "-c:a", "aac", "-preset", "ultrafast", "-y", outputName);
+
+        onProgress?.("Processing (may take a moment)...");
+        const execResult = await ff.exec(args);
 
         if (execResult !== 0) {
-            throw new Error(`FFmpeg conversion process failed (Code: ${execResult})`);
+            throw new Error(`FFmpeg processing failed (Code: ${execResult})`);
         }
 
         const data = await ff.readFile(outputName);
@@ -161,11 +167,11 @@ async function cropTo60s(
 
         const mimeType =
             file.type || (ext === "mp3" ? "audio/mpeg" : "video/mp4");
-        return new File([data as any], `cropped_${file.name}`, {
+        return new File([data as any], `processed_${file.name}`, {
             type: mimeType,
         });
     } catch (e: any) {
-        console.error("Crop error:", e);
+        console.error("Preprocess error:", e);
         throw new Error(e?.message || String(e));
     }
 }
@@ -227,20 +233,24 @@ export default function DubbingWorkspace() {
             setErrorLine("");
             setCropStatus("");
             setCroppedFile(null);
-
-            // Check for 60s exceedance → Auto crop
             const duration = await getMediaDuration(f);
-            if (duration > 60) {
+            const isTooLong = duration > 60;
+            const isTooLarge = f.size > 4.5 * 1024 * 1024;
+
+            if (isTooLong || isTooLarge) {
                 setCropStatus("preparing");
                 try {
-                    const cropped = await cropTo60s(f, (msg) =>
-                        setCropStatus(msg),
+                    const processed = await preprocessFile(
+                        f,
+                        isTooLong,
+                        isTooLarge,
+                        (msg: string) => setCropStatus(msg),
                     );
-                    setCroppedFile(cropped);
+                    setCroppedFile(processed);
                     setCropStatus("done");
                 } catch (err: any) {
                     setCropStatus("error");
-                    setErrorLine(`Crop failed: ${err.message}`);
+                    setErrorLine(`Processing failed: ${err.message}`);
                 }
             } else {
                 setCroppedFile(f);
