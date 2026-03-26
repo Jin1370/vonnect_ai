@@ -360,7 +360,15 @@ export default function DubbingWorkspace() {
             );
             setErrorLine(""); // Clear status messages
         } catch (e: any) {
-            setErrorLine(e.message);
+            let userMsg = e.message;
+            if (
+                userMsg.includes("detected_captcha_voice") ||
+                userMsg.includes("voice_access_denied")
+            ) {
+                userMsg =
+                    "This voice cannot be dubbed due to ElevenLabs' safety policy. Please try again or use a different video.\n(ElevenLabs 보이스 정책으로 인해 해당 음성을 처리할 수 없습니다. 다시 시도하거나 다른 영상을 사용해 주세요.)";
+            }
+            setErrorLine(userMsg);
         } finally {
             clearInterval(stepTimer);
             setIsProcessing(false);
@@ -413,7 +421,15 @@ export default function DubbingWorkspace() {
                     : prev,
             );
         } catch (e: any) {
-            setErrorLine(e.message);
+            let userMsg = e.message;
+            if (
+                userMsg.includes("detected_captcha_voice") ||
+                userMsg.includes("voice_access_denied")
+            ) {
+                userMsg =
+                    "This voice cannot be dubbed due to ElevenLabs' safety policy. Please try again or use a different video.\n(ElevenLabs 보이스 정책으로 인해 해당 음성을 처리할 수 없습니다. 다시 시도하거나 다른 영상을 사용해 주세요.)";
+            }
+            setErrorLine(userMsg);
         } finally {
             setIsRedubbing(false);
         }
