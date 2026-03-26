@@ -238,6 +238,7 @@ async function mergeAudioIntoVideo(
         "-c:v", "copy",    // Fast copy for video without re-encoding
         "-c:a", "aac",     // Encode audio as AAC (MP4 compatible)
         "-shortest",       // Exit based on shortest duration
+        "-movflags", "+faststart", // Better for web/mobile streaming
       ])
       .output(outputPath)
       .on("end", () => resolve())
@@ -619,6 +620,8 @@ Return a JSON object: {"segments": [{"speaker": "...", "translatedText": "..."}]
       speaker: s.speaker,
       original: s.text,
       translated: translatedSegments[i] ?? "",
+      start: s.start,
+      end: s.end,
       isSoundEffect: cleanText(s.text).trim() === "",
     }));
 

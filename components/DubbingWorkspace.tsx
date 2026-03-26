@@ -67,6 +67,8 @@ interface EditableTranslation {
     original: string;
     translated: string;
     isSoundEffect: boolean;
+    start: number;
+    end: number;
 }
 
 interface Result {
@@ -257,7 +259,9 @@ export default function DubbingWorkspace() {
     const [editedTranslations, setEditedTranslations] = useState<string[]>([]);
     const [preprocessNeedsCrop, setPreprocessNeedsCrop] = useState(false);
     const [errorLine, setErrorLine] = useState("");
+    const [currentTime, setCurrentTime] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     // Voice Clone cleanup on tab close
     useEffect(() => {
@@ -279,6 +283,20 @@ export default function DubbingWorkspace() {
             window.removeEventListener("pagehide", handleUnload);
         };
     }, [result?.jobId]);
+
+    // Auto-scroll to active transcript segment
+    useEffect(() => {
+        if (!result) return;
+        const activeIdx = result.editableTranslations.findIndex(
+            (item) => currentTime >= item.start && currentTime <= item.end,
+        );
+        if (activeIdx !== -1) {
+            const el = document.getElementById(`segment-${activeIdx}`);
+            if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+        }
+    }, [currentTime, result]);
 
     const handleFileChange = useCallback(
         async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -844,6 +862,12 @@ export default function DubbingWorkspace() {
                             <video
                                 controls
                                 src={result.mediaUrl}
+                                onTimeUpdate={(e) =>
+                                    setCurrentTime(
+                                        (e.target as HTMLVideoElement)
+                                            .currentTime,
+                                    )
+                                }
                                 style={{
                                     width: "100%",
                                     borderRadius: "16px",
@@ -857,6 +881,12 @@ export default function DubbingWorkspace() {
                             <audio
                                 controls
                                 src={result.mediaUrl}
+                                onTimeUpdate={(e) =>
+                                    setCurrentTime(
+                                        (e.target as HTMLAudioElement)
+                                            .currentTime,
+                                    )
+                                }
                                 style={{
                                     width: "100%",
                                     marginBottom: "1.5rem",
@@ -936,14 +966,18 @@ export default function DubbingWorkspace() {
                             </div>
 
                             <div
+                                ref={scrollContainerRef}
                                 style={{
                                     display: "flex",
                                     flexDirection: "column",
-                                    gap: "0.75rem", // Reduce spacing between lines
+                                    gap: "0.75rem",
+                                    maxHeight: "600px",
+                                    overflowY: "auto",
+                                    paddingRight: "4px",
                                 }}
                             >
                                 {result.editableTranslations.map((item, i) => {
-                                    if (!item.original.trim()) return null; // Remove empty segments from the view
+                                    if (!item.original.trim()) return null;
 
                                     const spkIdx = parseInt(
                                         item.speaker.replace("speaker_", ""),
@@ -953,19 +987,29 @@ export default function DubbingWorkspace() {
                                         SPEAKER_COLORS[
                                             spkIdx % SPEAKER_COLORS.length
                                         ];
+                                    const isActive =
+                                        currentTime >= item.start &&
+                                        currentTime <= item.end;
 
                                     return (
                                         <div
                                             key={i}
+                                            id={`segment-${i}`}
                                             style={{
                                                 display: "flex",
                                                 gap: "0.8rem",
                                                 alignItems: "flex-start",
-                                                padding: "0.75rem", // Reduce inner padding
-                                                background:
-                                                    "rgba(255,255,255,0.5)",
+                                                padding: "0.75rem",
+                                                background: isActive
+                                                    ? `${color}10` // 10% opacity color
+                                                    : "rgba(255,255,255,0.5)",
                                                 borderRadius: "12px",
-                                                border: "1px solid rgba(0,0,0,0.03)",
+                                                border: isActive
+                                                    ? `1px solid ${color}40`
+                                                    : "1px solid rgba(0,0,0,0.03)",
+                                                transition:
+                                                    "background 0.3s, border 0.3s",
+                                                scrollMarginTop: "20px",
                                             }}
                                         >
                                             <div style={{ marginTop: "4px" }}>

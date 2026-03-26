@@ -121,7 +121,14 @@ async function mergeAudioIntoVideo(videoPath: string, audioPath: string, outputP
   return new Promise((resolve, reject) => {
     ffmpeg()
       .input(videoPath).input(audioPath)
-      .outputOptions(["-c:v copy", "-c:a aac", "-map 0:v:0", "-map 1:a:0", "-shortest"])
+      .outputOptions([
+        "-c:v copy", 
+        "-c:a aac", 
+        "-map 0:v:0", 
+        "-map 1:a:0", 
+        "-shortest",
+        "-movflags +faststart"
+      ])
       .output(outputPath)
       .on("end", () => resolve())
       .on("error", (err: Error) => reject(new Error(`Failed to merge video: ${err.message}`)))
