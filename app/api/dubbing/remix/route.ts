@@ -14,15 +14,22 @@ const getFFmpeg = () => {
   const ffmpegStatic = require("ffmpeg-static");
   const ffprobeStatic = require("ffprobe-static");
   const fs = require("fs");
+  const path = require("path");
   
   if (ffmpegStatic) {
     ffmpeg.setFfmpegPath(ffmpegStatic);
   }
+  
   if (ffprobeStatic && ffprobeStatic.path) {
-    // Vercel/NFT trace hack: Force Vercel to bundle the binary by referencing it via fs
+    // Vercel/NFT trace hack: explicitly reference the path
+    ffmpeg.setFfprobePath(ffprobeStatic.path);
+
+    // Force Vercel to bundle the binary by referencing it via fs.statSync
     try {
-      if (fs.existsSync(ffprobeStatic.path)) {
-        ffmpeg.setFfprobePath(ffprobeStatic.path);
+      const stats = fs.statSync(ffprobeStatic.path);
+      if (!stats.isFile()) {
+        const altPath = path.join(process.cwd(), "node_modules", "ffprobe-static", "bin", process.platform, process.arch, process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
+        ffmpeg.setFfprobePath(altPath);
       }
     } catch (e) {}
   }
