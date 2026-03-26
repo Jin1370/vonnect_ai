@@ -18,6 +18,19 @@ const getFFmpeg = () => {
   return ffmpeg;
 };
 
+// Shared utility to get exact duration of an audio file using ffprobe
+async function getAudioDuration(filePath: string): Promise<number> {
+  const ffmpeg = getFFmpeg();
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err: any, metadata: any) => {
+      if (err) return reject(new Error(`ffprobe failed: ${err.message}`));
+      const duration = metadata.format.duration;
+      if (duration === undefined) return reject(new Error("ffprobe: could not determine duration"));
+      resolve(Number(duration));
+    });
+  });
+}
+
 // Shared utility re-import (same helpers as route.ts)
 async function extractAudioFromVideo(videoPath: string, outputAudioPath: string): Promise<void> {
   const ffmpeg = getFFmpeg();
@@ -83,12 +96,16 @@ async function mixAudioClips(
     }
 
     const filterParts: string[] = [];
+    // Filter graph: Adjust each clip's speed to match original duration, then apply delay
     let mixInputs = "[0:a]";
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
-      const estimatedDuration = clip.buffer.length / (128 * 1000 / 8);
       const targetDuration = clip.duration;
-      const tempo = Math.min(2.0, Math.max(0.5, estimatedDuration / targetDuration));
+      
+      // Get actual clip duration using ffprobe for 1ms precision
+      const actualDuration = await getAudioDuration(clipPaths[i]);
+      
+      const tempo = Math.min(2.0, Math.max(0.5, actualDuration / targetDuration));
       const delayMs = Math.round(clip.start * 1000);
       const inputIdx = i + 1;
       filterParts.push(`[${inputIdx}:a]atempo=${tempo.toFixed(3)}[s${i}]`);

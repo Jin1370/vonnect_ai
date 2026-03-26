@@ -152,9 +152,11 @@ async function mixAudioClips(
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
       const targetDuration = clip.duration;
-      // Get actual clip duration (Temporary estimation via Buffer size: 128kbps MP3 → ~16KB per second)
-      const estimatedDuration = (clip.buffer.length / 16000);
-      const tempo = Math.min(2.0, Math.max(0.5, estimatedDuration / targetDuration));
+      
+      // Get actual clip duration using ffprobe for 1ms precision
+      const actualDuration = await getAudioDuration(clipPaths[i]);
+      
+      const tempo = Math.min(2.0, Math.max(0.5, actualDuration / targetDuration));
       const delayMs = Math.round(clip.start * 1000);
       const inputIdx = i + 1;
 
@@ -204,6 +206,19 @@ function isVideoFile(file: File): boolean {
   if (file.type.startsWith("video/")) return true;
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   return ["mp4", "mov", "webm", "avi", "mkv", "m4v"].includes(ext);
+}
+
+// Shared utility to get exact duration of an audio file using ffprobe
+async function getAudioDuration(filePath: string): Promise<number> {
+  const ffmpeg = getFFmpeg();
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err: any, metadata: any) => {
+      if (err) return reject(new Error(`ffprobe failed: ${err.message}`));
+      const duration = metadata.format.duration;
+      if (duration === undefined) return reject(new Error("ffprobe: could not determine duration"));
+      resolve(Number(duration));
+    });
+  });
 }
 
 // Extract audio only from video (MP3)

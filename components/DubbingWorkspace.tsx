@@ -261,7 +261,6 @@ export default function DubbingWorkspace() {
     const [errorLine, setErrorLine] = useState("");
     const [currentTime, setCurrentTime] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     // Voice Clone cleanup on tab close
     useEffect(() => {
@@ -284,19 +283,6 @@ export default function DubbingWorkspace() {
         };
     }, [result?.jobId]);
 
-    // Auto-scroll to active transcript segment
-    useEffect(() => {
-        if (!result) return;
-        const activeIdx = result.editableTranslations.findIndex(
-            (item) => currentTime >= item.start && currentTime <= item.end,
-        );
-        if (activeIdx !== -1) {
-            const el = document.getElementById(`segment-${activeIdx}`);
-            if (el) {
-                el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-            }
-        }
-    }, [currentTime, result]);
 
     const handleFileChange = useCallback(
         async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -966,7 +952,6 @@ export default function DubbingWorkspace() {
                             </div>
 
                             <div
-                                ref={scrollContainerRef}
                                 style={{
                                     display: "flex",
                                     flexDirection: "column",
