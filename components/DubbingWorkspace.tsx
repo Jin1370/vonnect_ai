@@ -146,13 +146,20 @@ async function preprocessFile(
             onProgress?.("Cutting to 1 minute...");
             args.push("-t", "60");
         }
-        if (needsCompress) {
-            onProgress?.("Optimizing size...");
-            args.push("-vf", "scale=-2:480", "-b:v", "500k", "-b:a", "64k");
-        }
-
-        // Always use re-encoding if processing to ensure precise cuts
-        args.push("-c:v", "libx264", "-c:a", "aac", "-preset", "ultrafast", "-y", outputName);
+        
+        // Always apply compression parameters if we are processing.
+        // This prevents a 3.6MB file from bloating to 6MB during re-encoding.
+        onProgress?.("Optimizing for Vercel...");
+        args.push(
+            "-vf", "scale=-2:480", 
+            "-c:v", "libx264", 
+            "-b:v", "500k", 
+            "-c:a", "aac", 
+            "-b:a", "64k", 
+            "-preset", "ultrafast", 
+            "-y", 
+            outputName
+        );
 
         onProgress?.("Processing (may take a moment)...");
         const execResult = await ff.exec(args);
