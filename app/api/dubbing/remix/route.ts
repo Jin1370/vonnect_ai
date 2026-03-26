@@ -12,39 +12,28 @@ import os from "os";
 const getFFmpeg = () => {
   const ffmpeg = require("fluent-ffmpeg");
   const ffmpegStatic = require("ffmpeg-static");
-  const ffprobeStatic = require("ffprobe-static");
-  const fs = require("fs");
-  const path = require("path");
-  
   if (ffmpegStatic) {
     ffmpeg.setFfmpegPath(ffmpegStatic);
-  }
-  
-  if (ffprobeStatic && ffprobeStatic.path) {
-    // Vercel/NFT trace hack: explicitly reference the path
-    ffmpeg.setFfprobePath(ffprobeStatic.path);
-
-    // Force Vercel to bundle the binary by referencing it via fs.statSync
-    try {
-      const stats = fs.statSync(ffprobeStatic.path);
-      if (!stats.isFile()) {
-        const altPath = path.join(process.cwd(), "node_modules", "ffprobe-static", "bin", process.platform, process.arch, process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
-        ffmpeg.setFfprobePath(altPath);
-      }
-    } catch (e) {}
   }
   return ffmpeg;
 };
 
-// Shared utility to get exact duration of an audio file using ffprobe
+// Shared utility to get exact duration of an audio file using ffmpeg -i (works on Vercel)
 async function getAudioDuration(filePath: string): Promise<number> {
-  const ffmpeg = getFFmpeg();
-  return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(filePath, (err: any, metadata: any) => {
-      if (err) return reject(new Error(`ffprobe failed: ${err.message}`));
-      const duration = metadata.format.duration;
-      if (duration === undefined) return reject(new Error("ffprobe: could not determine duration"));
-      resolve(Number(duration));
+  const ffmpegStatic = require("ffmpeg-static");
+  const { exec } = require("child_process");
+  
+  return new Promise((resolve) => {
+    exec(`"${ffmpegStatic}" -i "${filePath}"`, (error: any, stdout: string, stderr: string) => {
+      const output = stderr || stdout;
+      const match = output.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+      if (match) {
+        const h = parseInt(match[1], 10);
+        const m = parseInt(match[2], 10);
+        const s = parseFloat(match[3]);
+        return resolve(h * 3600 + m * 60 + s);
+      }
+      resolve(0);
     });
   });
 }
