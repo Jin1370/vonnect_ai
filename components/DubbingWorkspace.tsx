@@ -350,6 +350,7 @@ export default function DubbingWorkspace() {
                 
                 data.mediaUrl = URL.createObjectURL(finalVideo);
                 data.mediaType = "video";
+                data.fileExt = "mp4";
             }
 
             setResult(data);
@@ -408,6 +409,7 @@ export default function DubbingWorkspace() {
                 
                 data.mediaUrl = URL.createObjectURL(finalVideo);
                 data.mediaType = "video";
+                data.fileExt = "mp4";
             }
 
             setResult((prev: Result | null) =>
