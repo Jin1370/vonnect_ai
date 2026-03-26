@@ -12,9 +12,6 @@
 ### 🚀 [데모 보러가기](https://vonnect-ai.vercel.app/)
 
 [![Vercel Deployment](https://img.shields.io/badge/Vercel-Deployed-black?logo=vercel&style=for-the-badge)](https://vonnect-ai.vercel.app/)
-[![Next.js](https://img.shields.io/badge/Next.js-16.2-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
-[![ElevenLabs](https://img.shields.io/badge/AI-ElevenLabs-ff9f43?style=for-the-badge&logo=elevenlabs)](https://elevenlabs.io/)
-[![OpenAI](https://img.shields.io/badge/AI-OpenAI%20GPT--4o-412991?style=for-the-badge&logo=openai)](https://openai.com/)
 
 ---
 
