@@ -346,7 +346,7 @@ export default function DubbingWorkspace() {
                 const dubbedAudioBlob = await dubbedAudioRes.blob();
                 
                 const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob, (msg) => 
-                    setErrorLine(msg)
+                    setCropStatus(msg) // Use cropStatus instead of errorLine
                 );
                 
                 data.mediaUrl = URL.createObjectURL(finalVideo);
@@ -395,7 +395,9 @@ export default function DubbingWorkspace() {
             if (processedVideo && processedVideo.type.startsWith("video")) {
                 const dubbedAudioRes = await fetch(data.mediaUrl);
                 const dubbedAudioBlob = await dubbedAudioRes.blob();
-                const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob);
+                const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob, (msg) => 
+                    setCropStatus(msg)
+                );
                 
                 data.mediaUrl = URL.createObjectURL(finalVideo);
                 data.mediaType = "video";
