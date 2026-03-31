@@ -29,13 +29,13 @@ Currently, this service is operated on a **Whitelist** basis to ensure optimal e
 
 **Vonnect AI** is a premium web platform that goes beyond simple voice synthesis to intelligently distinguish multiple speakers in a video and provide dubbing that preserves each person's uniqueness.
 
--   **🤖 Intelligent Multi-Speaker Diarization**: Automatically recognizes multiple speakers in a video and separates them into individual segments using ElevenLabs AI.
--   **🎙️ Instant Voice Cloning**: Extracts sample audio from each speaker to generate dubbing with the most similar voice to the original.
--   **✍️ Responsive Translation & Editing (Interactive Re-dub)**: Users can directly check the high-quality translation results from GPT-4o and immediately edit them to re-dub.
--   **🎞️ Crop Range Selection**: Allows users to manually specify the range to crop using a dual-handle slider with a real-time preview for convenience.
--   **📜 Translated Subtitle Option**: Users can choose whether to burn translated subtitles into the video.
--   **▶️ Original Video Playback**: Includes a built-in player to instantly check the original video and compare it with the dubbed result.
--   **⚡ Client-Side Preprocessing**: Optimized for fast processing by handling large files directly in the browser using FFmpeg WASM.
+- **🤖 Intelligent Multi-Speaker Diarization**: Automatically recognizes multiple speakers in a video and separates them into individual segments using ElevenLabs AI.
+- **🎙️ Instant Voice Cloning**: Extracts sample audio from each speaker to generate dubbing with the most similar voice to the original.
+- **✍️ Responsive Translation & Editing (Interactive Re-dub)**: Users can directly check the high-quality translation results from GPT-4o and immediately edit them to re-dub.
+- **🎞️ Crop Range Selection**: Allows users to manually specify the range to crop with a real-time preview for convenience.
+- **📜 Translated Subtitle Option**: Users can choose whether to add translated subtitles to the video.
+- **▶️ Original Video Playback**: Includes a built-in player to check the original video and compare it with the dubbed result.
+- **⚡ Client-Side Preprocessing**: Optimized for fast processing by handling large files directly in the browser using FFmpeg WASM.
 - **📱 Premium Responsive UI**: Provides a sophisticated design and mobile interface.
 
 ---
@@ -81,7 +81,7 @@ NEXTAUTH_SECRET=your_nextauth_secret
 NEXTAUTH_URL=http://localhost:3000
 GOOGLE_CLIENT_ID=your_google_id
 GOOGLE_CLIENT_SECRET=your_google_secret
-USE_BASE_VOICE=false # If true, skips cloning and uses base voices to save quota.
+USE_BASE_VOICE=false # If true, skips cloning and uses base voices.
 ```
 
 ### 2. Install & Run
