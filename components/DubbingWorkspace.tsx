@@ -12,6 +12,7 @@ import {
     ArrowDownTrayIcon,
     PencilSquareIcon,
     CheckCircleIcon,
+    ExclamationCircleIcon,
     ClockIcon,
 } from "@heroicons/react/24/solid";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
@@ -129,7 +130,8 @@ async function getFFmpeg(): Promise<FFmpeg> {
 // Preprocess (Crop video and/or Extract audio)
 async function preprocessFile(
     file: File,
-    needsCrop: boolean,
+    start: number,
+    duration: number,
     onProgress?: (msg: string) => void,
 ): Promise<{ videoFile: File; audioFile: File }> {
     try {
@@ -145,25 +147,21 @@ async function preprocessFile(
         onProgress?.("Analyzing Media...");
         await ff.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
 
-        // 1. Process Video (Crop if needed, else just copy)
-        // We use '-c copy' to preserve 100% quality and speed if just cropping.
-        const videoArgs = ["-i", inputName];
-        if (needsCrop) {
-            videoArgs.push("-t", "60");
-        }
+        // 1. Process Video (Crop and keep all streams)
+        // We use '-c copy' to preserve 100% quality and speed.
+        const videoArgs = ["-ss", start.toString(), "-i", inputName, "-t", duration.toString()];
         if (isVideo) {
-            videoArgs.push("-c", "copy", "-map", "0:v:0", "-y", outputVideoName);
+            videoArgs.push("-c", "copy", "-map", "0", "-y", outputVideoName);
         } else {
             // If it's just audio, we don't need a video file
             await ff.writeFile(outputVideoName, new Uint8Array(await file.arrayBuffer()));
         }
 
-        onProgress?.(needsCrop ? "Cropping Video..." : "Preparing Video...");
+        onProgress?.("Preparing Video...");
         if (isVideo) await ff.exec(videoArgs);
 
         // 2. Process Audio (Extract as MP3 for server upload)
-        const audioArgs = ["-i", inputName];
-        if (needsCrop) audioArgs.push("-t", "60");
+        const audioArgs = ["-ss", start.toString(), "-i", inputName, "-t", duration.toString()];
         audioArgs.push("-vn", "-acodec", "libmp3lame", "-b:a", "128k", "-y", outputAudioName);
 
         onProgress?.("Extracting Audio...");
@@ -178,7 +176,7 @@ async function preprocessFile(
         ff.deleteFile(outputAudioName).catch(() => {});
 
         return {
-            videoFile: new File([videoData as any], isVideo ? `cropped_${file.name}` : file.name, { type: isVideo ? "video/mp4" : file.type }),
+            videoFile: new File([videoData as any], isVideo ? `cropped_${file.name}` : file.name, { type: isVideo ? file.type : file.type }),
             audioFile: new File([audioData as any], "audio.mp3", { type: "audio/mpeg" }),
         };
     } catch (e: any) {
@@ -192,28 +190,128 @@ async function mergeDubbedAudio(
     videoFile: File,
     audioBlob: Blob,
     onProgress?: (msg: string) => void,
+    segments?: any[]
 ): Promise<File> {
     try {
-        onProgress?.("Merging Dubbed audio...");
+        // onProgress?.("Merging Dubbed audio..."); // Removed noisy log to keep Ready to dub! stable
         const ff = await getFFmpeg();
-        const videoName = "input_video.mp4";
+        const videoExt = videoFile.name.split(".").pop() || "mp4";
+        const videoName = `input_video.${videoExt}`;
         const audioName = "dubbed_audio.mp3";
         const outputName = "final_dubbed.mp4";
 
         await ff.writeFile(videoName, new Uint8Array(await videoFile.arrayBuffer()));
         await ff.writeFile(audioName, new Uint8Array(await audioBlob.arrayBuffer()));
 
-        await ff.exec([
+        const args = [
             "-i", videoName,
             "-i", audioName,
-            "-c:v", "copy", // No re-encoding for video! Preservation 100%
+        ];
+
+            if (segments && segments.length > 0) {
+                // 1. Load a CJK-compatible font for rendering. Try multiple reliable sources.
+                const fontSources = [
+                    "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf",
+                    "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts/hinted/ttf/NotoSansKR/NotoSansKR-Regular.ttf",
+                    "https://cdn.jsdelivr.net/gh/naver/nanumfont@master/nanumgothic/NanumGothic.ttf",
+                    "https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-kr/files/noto-sans-kr-korean-400-normal.woff" 
+                ];
+                
+                let hasFont = false;
+                let loadedFontName = "font.ttf";
+    
+                for (const url of fontSources) {
+                    try {
+                        const fontRes = await fetch(url);
+                        if (fontRes.ok) {
+                            const ext = url.split(".").pop() || "ttf";
+                            loadedFontName = `font.${ext}`;
+                            const fontData = await fontRes.arrayBuffer();
+                            await ff.writeFile(loadedFontName, new Uint8Array(fontData));
+                            hasFont = true;
+                            // onProgress?.(`Font loaded from: ${url.split('/').slice(-3).join('/')}`); // Removed noisy log
+                            break; 
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to load font from ${url}:`, e);
+                    }
+                }
+
+            if (!hasFont) {
+                console.warn("All font sources failed. Subtitles will be skipped to prevent video corruption.");
+            }
+
+            // Generate drawtext filters for each segment - ONLY if font is available
+            let drawtextChain = "";
+            if (hasFont) {
+                drawtextChain = segments
+                    .filter(s => s.translated && s.translated.trim() !== "")
+                    .map(s => {
+                        // Smart wrap: handles word boundaries and balances CJK vs Latin width
+                        const wrapSubtitle = (text: string, maxUnits: number = 44) => {
+                            const tokens = text.match(/[\u4e00-\u9fa5]|[\uac00-\ud7af]|[\u3040-\u309f]|[\u30a0-\u30ff]|\S+|\s+/g) || [];
+                            const lines: string[] = [];
+                            let currentLine = "";
+                            let currentUnits = 0;
+
+                            for (const token of tokens) {
+                                let tokenUnits = 0;
+                                for (const char of token) {
+                                    tokenUnits += /[\u4e00-\u9fa5]|[\uac00-\ud7af]|[\u3040-\u309f]|[\u30a0-\u30ff]/.test(char) ? 2 : 1;
+                                }
+
+                                if (currentUnits + tokenUnits > maxUnits && currentLine.trim() !== "") {
+                                    lines.push(currentLine.trim());
+                                    currentLine = token.trim() === "" ? "" : token;
+                                    currentUnits = tokenUnits;
+                                } else {
+                                    currentLine += token;
+                                    currentUnits += tokenUnits;
+                                }
+                            }
+                            if (currentLine.trim() !== "") lines.push(currentLine.trim());
+                            return lines.join("\n");
+                        };
+
+                        const wrapped = wrapSubtitle(s.translated);
+
+                        const cleanText = wrapped
+                            .replace(/\\/g, "\\\\")
+                            .replace(/'/g, "'\\''")
+                            .replace(/:/g, "\\:")
+                            .replace(/%/g, "\\%")
+                            .replace(/\n/g, "\\\n"); // FFmpeg drawtext newline escaping
+                        
+                        return `drawtext=fontfile=${loadedFontName}:text='${cleanText}':enable='between(t,${s.start},${s.end})':x=(w-text_w)/2:y=h-80:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=10:fix_bounds=1`;
+                    })
+                    .join(",");
+            }
+
+            if (drawtextChain) {
+                // Combine with scaling to ensure even dimensions (needed for yuv420p)
+                args.push("-vf", `scale=trunc(iw/2)*2:trunc(ih/2)*2,${drawtextChain}`);
+            } else {
+                args.push("-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2");
+            }
+            // Re-encoding is required for filters - use yuv420p for mobile compatibility
+            args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-pix_fmt", "yuv420p");
+        } else {
+            // Always re-encode to H.264/yuv420p for maximum compatibility (iOS/Chrome/Mobile)
+            args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-pix_fmt", "yuv420p");
+        }
+
+        args.push(
             "-c:a", "aac",
+            "-b:a", "192k",
             "-map", "0:v:0",
             "-map", "1:a:0",
+            "-map_metadata", "-1", // Strip potentially corrupt metadata
             "-shortest",
             "-y",
             outputName
-        ]);
+        );
+
+        await ff.exec(args);
 
         const data = await ff.readFile(outputName);
         ff.deleteFile(videoName).catch(() => {});
@@ -257,10 +355,45 @@ export default function DubbingWorkspace() {
     const [stepIdx, setStepIdx] = useState(0);
     const [result, setResult] = useState<Result | null>(null);
     const [editedTranslations, setEditedTranslations] = useState<string[]>([]);
-    const [preprocessNeedsCrop, setPreprocessNeedsCrop] = useState(false);
+    const [videoDuration, setVideoDuration] = useState(0);
+    const [cropStart, setCropStart] = useState(0);
+    const [cropEnd, setCropEnd] = useState(60);
     const [errorLine, setErrorLine] = useState("");
     const [currentTime, setCurrentTime] = useState(0);
+    const [burnSubtitles, setBurnSubtitles] = useState(false);
+    const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const videoPreviewRef = useRef<HTMLVideoElement>(null);
+
+    // Revoke original URL on cleanup or change
+    useEffect(() => {
+        if (processedVideo) {
+            const url = URL.createObjectURL(processedVideo);
+            setOriginalUrl(url);
+            return () => URL.revokeObjectURL(url);
+        }
+    }, [processedVideo]);
+
+    // Handle preview URL for the cropping UI
+    useEffect(() => {
+        if (file && file.type.startsWith("video")) {
+            const url = URL.createObjectURL(file);
+            setPreviewUrl(url);
+            return () => URL.revokeObjectURL(url);
+        } else {
+            setPreviewUrl(null);
+        }
+    }, [file]);
+
+    // Reset preview to cropStart when done dragging handles
+    useEffect(() => {
+        if (!isDragging && videoPreviewRef.current && !videoPreviewRef.current.paused) return; // Don't snap if playing
+        if (!isDragging && videoPreviewRef.current) {
+            videoPreviewRef.current.currentTime = cropStart;
+        }
+    }, [isDragging, cropStart]);
 
     // Voice Clone cleanup on tab close
     useEffect(() => {
@@ -296,19 +429,21 @@ export default function DubbingWorkspace() {
             setProcessedAudio(null);
 
             const duration = await getMediaDuration(f);
-            const isTooLong = duration > 60;
-            setPreprocessNeedsCrop(isTooLong);
+            setVideoDuration(duration);
+            setCurrentTime(0); // Reset playhead
+            
+            // Set initial crop range: 0 to min(duration, 60)
+            setCropStart(0);
+            setCropEnd(Math.min(duration, 60));
 
-            // Preprocess if > 60s OR if it's a video (to extract audio)
+            // If it's a short audio file, we can skip cropping UI logic 
+            // but for any video, we show the selection UI.
             const isVideo = f.type.startsWith("video");
-            if (isTooLong || isVideo) {
+            if (!isVideo && duration <= 60) {
+                // Auto-prepare short audio
                 setCropStatus("preparing");
                 try {
-                    const { videoFile, audioFile } = await preprocessFile(
-                        f,
-                        isTooLong,
-                        (msg: string) => setCropStatus(msg),
-                    );
+                    const { videoFile, audioFile } = await preprocessFile(f, 0, duration, (msg) => setCropStatus(msg));
                     setProcessedVideo(videoFile);
                     setProcessedAudio(audioFile);
                     setCropStatus("done");
@@ -316,10 +451,6 @@ export default function DubbingWorkspace() {
                     setCropStatus("error");
                     setErrorLine(`Preprocessing failed: ${err.message}`);
                 }
-            } else {
-                // For direct audio file under 60s
-                setProcessedAudio(f);
-                setProcessedVideo(f);
             }
         },
         [],
@@ -330,6 +461,7 @@ export default function DubbingWorkspace() {
         if (!uploadFile) return;
         setIsProcessing(true);
         setResult(null);
+        setCurrentTime(0); // Reset playhead for result view
         setErrorLine("");
         setStepIdx(0);
 
@@ -355,7 +487,12 @@ export default function DubbingWorkspace() {
                 const dubbedAudioRes = await fetch(data.mediaUrl);
                 const dubbedAudioBlob = await dubbedAudioRes.blob();
                 
-                const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob); // No progress callback
+                const finalVideo = await mergeDubbedAudio(
+                    processedVideo, 
+                    dubbedAudioBlob, 
+                    (msg) => setCropStatus(msg),
+                    burnSubtitles ? data.editableTranslations : undefined
+                ); 
                 
                 data.mediaUrl = URL.createObjectURL(finalVideo);
                 data.mediaType = "video";
@@ -412,8 +549,11 @@ export default function DubbingWorkspace() {
             if (processedVideo && processedVideo.type.startsWith("video")) {
                 const dubbedAudioRes = await fetch(data.mediaUrl);
                 const dubbedAudioBlob = await dubbedAudioRes.blob();
-                const finalVideo = await mergeDubbedAudio(processedVideo, dubbedAudioBlob, (msg) => 
-                    setCropStatus(msg)
+                const finalVideo = await mergeDubbedAudio(
+                    processedVideo, 
+                    dubbedAudioBlob, 
+                    (msg) => setCropStatus(msg),
+                    burnSubtitles ? result.editableTranslations : undefined
                 );
                 
                 data.mediaUrl = URL.createObjectURL(finalVideo);
@@ -528,94 +668,255 @@ export default function DubbingWorkspace() {
                         )}
                     </div>
 
-            {/* Crop Status - Only show for long videos */}
-            {file && (file.size / 1024 / 1024) > 0 && (
-                <>
-                    {cropStatus &&
-                        cropStatus !== "done" &&
-                        cropStatus !== "error" &&
-                        preprocessNeedsCrop && ( // Only show IF it actually needs cropping
-                            <div
-                                style={{
-                                    marginTop: "1rem",
-                                    padding: "0.75rem 1rem",
-                                    background: "rgba(251,146,60,0.05)",
-                                    borderRadius: "12px",
-                                    border: "1px solid rgba(251,146,60,0.15)",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "0.6rem",
-                                }}
-                            >
-                                <ScissorsIcon
-                                    style={{
-                                        width: 16,
-                                        height: 16,
-                                        color: "#fb923c",
+            {/* Range Selection UI */}
+            {file && !result && !processedAudio && !isProcessing && (
+                <div style={{
+                    marginTop: "1.5rem",
+                    padding: "1.5rem",
+                    background: "rgba(255,255,255,0.8)",
+                    borderRadius: "24px",
+                    border: "1px solid rgba(0,0,0,0.05)",
+                    boxShadow: "0 10px 25px -5px rgba(0,0,0,0.04)",
+                }}>
+                    <h4 style={{ margin: "0 0 0.5rem 0", fontSize: "1rem", fontWeight: 600 }}>Select Dubbing Range</h4>
+                    
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                        {previewUrl && (
+                            <div style={{ width: "100%", aspectRatio: "16/9", background: "#000", borderRadius: "16px", overflow: "hidden", position: "relative" }}>
+                                <video 
+                                    controls
+                                    src={previewUrl} 
+                                    ref={videoPreviewRef}
+                                    onLoadedMetadata={(e) => {
+                                        const v = e.target as HTMLVideoElement;
+                                        v.currentTime = cropStart;
                                     }}
+                                    onTimeUpdate={(e) => {
+                                        const v = e.target as HTMLVideoElement;
+                                        if (v.paused) return; // Don't enforce constraints while seeking/dragging
+                                        if (v.currentTime < cropStart) {
+                                            v.currentTime = cropStart;
+                                        }
+                                        if (v.currentTime >= cropEnd) {
+                                            v.pause();
+                                            v.currentTime = cropStart;
+                                        }
+                                    }}
+                                    style={{ width: "100%", height: "100%", objectFit: "contain" }}
                                 />
-                                <span
-                                    style={{
-                                        color: "#ea580c",
-                                        fontSize: "0.88rem",
-                                        fontWeight: 500,
-                                    }}
-                                >
-                                    1min+ Detected — {cropStatus}
-                                </span>
-                                <ArrowPathIcon
-                                    className="animate-spin"
-                                    style={{
-                                        width: 14,
-                                        height: 14,
-                                        color: "#fb923c",
-                                    }}
-                                />
+                                <div style={{ position: "absolute", bottom: "10px", right: "10px", padding: "4px 8px", background: "rgba(0,0,0,0.6)", color: "white", borderRadius: "6px", fontSize: "0.75rem", fontFamily: "monospace" }}>
+                                    Preview at {new Date(cropStart * 1000).toISOString().substr(14, 5)}
+                                </div>
                             </div>
                         )}
-                    {cropStatus === "done" && preprocessNeedsCrop && (
-                        <div
-                            style={{
-                                marginTop: "1rem",
-                                padding: "0.75rem 1rem",
-                                background: "rgba(52,211,153,0.05)",
-                                borderRadius: "12px",
-                                border: "1px solid rgba(52,211,153,0.15)",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "0.6rem",
-                            }}
-                        >
-                            <ScissorsIcon
-                                style={{
-                                    width: 16,
-                                    height: 16,
-                                    color: "#059669",
+
+                        {/* Dual Range Slider */}
+                        <div style={{ position: "relative", width: "100%", height: "60px", marginBottom: "0.5rem", display: "flex", alignItems: "center" }}>
+                            {/* Track Background */}
+                            <div style={{ position: "absolute", width: "100%", height: "10px", background: "#e2e8f0", borderRadius: "5px" }} />
+                            
+                            {/* Highlighted Range */}
+                            <div style={{ 
+                                position: "absolute", 
+                                left: `${(cropStart / videoDuration) * 100}%`, 
+                                width: `${((cropEnd - cropStart) / videoDuration) * 100}%`, 
+                                height: "10px", 
+                                background: "var(--primary)", 
+                                borderRadius: "5px",
+                                opacity: 0.8
+                            }} />
+
+                            {/* Floating Timestamps */}
+                            <div style={{ 
+                                position: "absolute", 
+                                left: `${(cropStart / videoDuration) * 100}%`, 
+                                top: "0",
+                                transform: "translateX(-50%)",
+                                fontSize: "0.75rem",
+                                fontWeight: 700,
+                                color: "var(--primary)",
+                                whiteSpace: "nowrap"
+                            }}>
+                                {new Date(cropStart * 1000).toISOString().substr(14, 5)}
+                            </div>
+                            <div style={{ 
+                                position: "absolute", 
+                                left: `${(cropEnd / videoDuration) * 100}%`, 
+                                bottom: "-18px",
+                                transform: "translateX(-50%)",
+                                fontSize: "0.75rem",
+                                fontWeight: 700,
+                                color: "var(--primary)",
+                                whiteSpace: "nowrap"
+                            }}>
+                                {new Date(cropEnd * 1000).toISOString().substr(14, 5)}
+                            </div>
+
+                            {/* Start Handle */}
+                            <input 
+                                type="range" 
+                                min={0} 
+                                max={videoDuration} 
+                                step={0.1}
+                                value={cropStart} 
+                                onChange={(e) => {
+                                    const val = Number(e.target.value);
+                                    if (val >= cropEnd) {
+                                        setCropStart(cropEnd - 0.1);
+                                        return;
+                                    }
+                                    setCropStart(val);
+                                    if (cropEnd - val > 60) setCropEnd(val + 60);
+                                    if (videoPreviewRef.current) {
+                                        videoPreviewRef.current.currentTime = val;
+                                    }
                                 }}
+                                onMouseDown={() => setIsDragging(true)}
+                                onMouseUp={() => setIsDragging(false)}
+                                onTouchStart={() => setIsDragging(true)}
+                                onTouchEnd={() => setIsDragging(false)}
+                                style={{ 
+                                    position: "absolute", 
+                                    width: "100%", 
+                                    appearance: "none", 
+                                    background: "transparent", 
+                                    pointerEvents: "none",
+                                    top: "50%",
+                                    transform: "translateY(-50%)",
+                                    zIndex: cropStart > videoDuration / 2 ? 5 : 4
+                                }}
+                                className="range-handle"
                             />
-                            <span
+
+                            {/* End Handle */}
+                            <input 
+                                type="range" 
+                                min={0} 
+                                max={videoDuration} 
+                                step={0.1}
+                                value={cropEnd} 
+                                onChange={(e) => {
+                                    const val = Number(e.target.value);
+                                    if (val <= cropStart) {
+                                        setCropEnd(cropStart + 0.1);
+                                        return;
+                                    }
+                                    setCropEnd(val);
+                                    if (val - cropStart > 60) setCropStart(val - 60);
+                                    if (videoPreviewRef.current) {
+                                        videoPreviewRef.current.currentTime = val;
+                                    }
+                                }}
+                                onMouseDown={() => setIsDragging(true)}
+                                onMouseUp={() => setIsDragging(false)}
+                                onTouchStart={() => setIsDragging(true)}
+                                onTouchEnd={() => setIsDragging(false)}
+                                style={{ 
+                                    position: "absolute", 
+                                    width: "100%", 
+                                    appearance: "none", 
+                                    background: "transparent", 
+                                    pointerEvents: "none",
+                                    top: "50%",
+                                    transform: "translateY(-50%)",
+                                    zIndex: cropEnd < videoDuration / 2 ? 5 : 4
+                                }}
+                                className="range-handle"
+                            />
+                        </div>
+
+                        <div style={{ 
+                            padding: "0.75rem",
+                            background: "rgba(99, 102, 241, 0.05)",
+                            borderRadius: "12px",
+                            border: "1px solid rgba(99, 102, 241, 0.15)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center"
+                        }}>
+                            <span style={{ fontSize: "0.88rem", color: "#6366f1", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                <ExclamationCircleIcon style={{ width: 16, height: 16 }} />
+                                Please select a range within 1 minute
+                            </span>
+                            <button
+                                disabled={cropStatus === "preparing" || (cropEnd - cropStart) > 60 || (cropEnd - cropStart) <= 0}
+                                onClick={async () => {
+                                    setCropStatus("preparing");
+                                    try {
+                                        const { videoFile, audioFile } = await preprocessFile(
+                                            file!, 
+                                            cropStart, 
+                                            cropEnd - cropStart, 
+                                            (msg) => setCropStatus(msg)
+                                        );
+                                        setProcessedVideo(videoFile);
+                                        setProcessedAudio(audioFile);
+                                        setCropStatus("done");
+                                    } catch (err: any) {
+                                        setCropStatus("error");
+                                        setErrorLine(`Preprocessing failed: ${err.message}`);
+                                    }
+                                }}
                                 style={{
-                                    color: "#059669",
-                                    fontSize: "0.88rem",
+                                    padding: "0.5rem 1rem",
+                                    background: "var(--primary)",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "8px",
+                                    cursor: "pointer",
+                                    fontSize: "0.9rem",
                                     fontWeight: 500,
+                                    opacity: (cropStatus === "preparing" || (cropEnd - cropStart) > 60) ? 0.5 : 1
                                 }}
                             >
-                                Cropped to first 1 minute
-                            </span>
+                                {cropStatus === "preparing" ? "Preparing..." : "Apply"}
+                            </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Preparation Status */}
+            {cropStatus && cropStatus !== "" && (
+                <div style={{
+                    marginTop: "1rem",
+                    padding: "0.75rem 1rem",
+                    background: cropStatus === "error" ? "rgba(239,68,68,0.05)" : (cropStatus === "done" ? "rgba(34,197,94,0.05)" : "rgba(37,99,235,0.05)"),
+                    borderRadius: "12px",
+                    border: cropStatus === "error" ? "1px solid rgba(239,68,68,0.15)" : (cropStatus === "done" ? "1px solid rgba(34,197,94,0.15)" : "1px solid rgba(37,99,235,0.15)"),
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.6rem",
+                }}>
+                    {cropStatus === "done" ? (
+                        <CheckCircleIcon style={{ width: 16, height: 16, color: "#22c55e" }} />
+                    ) : (
+                        cropStatus === "error" ? (
+                            <ExclamationCircleIcon style={{ width: 16, height: 16, color: "#ef4444" }} />
+                        ) : (
+                            <ArrowPathIcon className="animate-spin" style={{ width: 14, height: 14, color: "var(--primary)" }} />
+                        )
                     )}
-                </>
+                    <span style={{
+                        color: cropStatus === "error" ? "#dc2626" : (cropStatus === "done" ? "#16a34a" : "var(--primary)"),
+                        fontSize: "0.88rem",
+                        fontWeight: 500,
+                    }}>
+                        {cropStatus === "done" ? "Ready to dub!" : (cropStatus === "error" ? "Error in preparation" : cropStatus)}
+                    </span>
+                </div>
             )}
 
                     {file &&
-                        (cropStatus === "done" || cropStatus === "") &&
+                        processedAudio &&
                         !isProcessing && (
                             <div
                                 style={{
                                     marginTop: "var(--section-gap)",
                                     display: "flex",
-                                    gap: "1rem",
+                                    gap: "1.2rem",
                                     flexWrap: "wrap",
+                                    alignItems: "flex-end",
                                 }}
                             >
                                 <div
@@ -660,6 +961,45 @@ export default function DubbingWorkspace() {
                                         <option value="zh">Chinese</option>
                                     </select>
                                 </div>
+                                {file?.type.startsWith("video/") && (
+                                    <div style={{ 
+                                        display: "flex", 
+                                        flexDirection: "column",
+                                        justifyContent: "center",
+                                        height: "3.1rem", // Matches the button and roughly the select box height
+                                    }}>
+                                        <label style={{ 
+                                            fontSize: "0.95rem", 
+                                            color: "#475569", 
+                                            fontWeight: 500, 
+                                            display: "flex", 
+                                            alignItems: "center", 
+                                            gap: "0.6rem", 
+                                            cursor: "pointer" 
+                                        }}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={burnSubtitles} 
+                                                onChange={(e) => setBurnSubtitles(e.target.checked)} 
+                                                style={{ 
+                                                    width: "18px",
+                                                    height: "18px",
+                                                    accentColor: "var(--primary)",
+                                                    cursor: "pointer"
+                                                }} 
+                                            />
+                                            Add subtitles
+                                        </label>
+                                        <span style={{ 
+                                            fontSize: "0.75rem", 
+                                            color: "#94a3b8", 
+                                            marginLeft: "1.75rem",
+                                            marginTop: "0.1rem"
+                                        }}>
+                                            (Takes a bit longer to process)
+                                        </span>
+                                    </div>
+                                )}
                                 <div
                                     style={{
                                         display: "flex",
@@ -844,42 +1184,73 @@ export default function DubbingWorkspace() {
                             </div>
                         </div>
 
-                        {result.mediaType === "video" ? (
-                            <video
-                                controls
-                                src={result.mediaUrl}
-                                onTimeUpdate={(e) =>
-                                    setCurrentTime(
-                                        (e.target as HTMLVideoElement)
-                                            .currentTime,
-                                    )
-                                }
-                                style={{
-                                    width: "100%",
-                                    borderRadius: "16px",
-                                    marginBottom: "1.5rem",
-                                    outline: "none",
-                                    background: "#000",
-                                    boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
-                                }}
-                            />
-                        ) : (
-                            <audio
-                                controls
-                                src={result.mediaUrl}
-                                onTimeUpdate={(e) =>
-                                    setCurrentTime(
-                                        (e.target as HTMLAudioElement)
-                                            .currentTime,
-                                    )
-                                }
-                                style={{
-                                    width: "100%",
-                                    marginBottom: "1.5rem",
-                                    outline: "none",
-                                }}
-                            />
-                        )}
+                        <div style={{ 
+                            display: "grid", 
+                            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", 
+                            gap: "1.5rem", 
+                            marginBottom: "1.5rem" 
+                        }}>
+                            {/* Original Player */}
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#94a3b8", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                    ORIGINAL
+                                </span>
+                                {result.mediaType === "video" ? (
+                                    <video
+                                        controls
+                                        src={originalUrl || ""}
+                                        style={{ width: "100%", borderRadius: "12px", background: "#000" }}
+                                    />
+                                ) : (
+                                    <audio 
+                                        controls 
+                                        src={originalUrl || ""} 
+                                        style={{ width: "100%" }} 
+                                    />
+                                )}
+                            </div>
+
+                            {/* Dubbed Player */}
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--primary)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                    AI DUBBED RESULT ✨
+                                </span>
+                                {result.mediaType === "video" ? (
+                                    <video
+                                        controls
+                                        src={result.mediaUrl}
+                                        onTimeUpdate={(e) =>
+                                            setCurrentTime(
+                                                (e.target as HTMLVideoElement)
+                                                    .currentTime,
+                                            )
+                                        }
+                                        style={{
+                                            width: "100%",
+                                            borderRadius: "16px",
+                                            outline: "none",
+                                            background: "#000",
+                                            boxShadow: "0 10px 30px rgba(99, 102, 241, 0.15)",
+                                        }}
+                                    />
+                                ) : (
+                                    <audio
+                                        controls
+                                        src={result.mediaUrl}
+                                        onTimeUpdate={(e) =>
+                                            setCurrentTime(
+                                                (e.target as HTMLAudioElement)
+                                                    .currentTime,
+                                            )
+                                        }
+                                        style={{
+                                            width: "100%",
+                                            outline: "none",
+                                        }}
+                                    />
+                                )}
+                            </div>
+                        </div>
 
                         <a
                             href={result.mediaUrl}
@@ -975,6 +1346,7 @@ export default function DubbingWorkspace() {
                                     const isActive =
                                         currentTime >= item.start &&
                                         currentTime <= item.end;
+                                    const showSpeakerIcon = i === 0 || result.editableTranslations[i-1].speaker !== item.speaker;
 
                                     return (
                                         <div
@@ -995,17 +1367,19 @@ export default function DubbingWorkspace() {
                                                 transition:
                                                     "background 0.3s, border 0.3s",
                                                 scrollMarginTop: "20px",
+                                                marginTop: (showSpeakerIcon && i > 0) ? "0.75rem" : "0"
                                             }}
                                         >
-                                            <div style={{ marginTop: "4px" }}>
-                                                <UserIcon
-                                                    style={{
-                                                        width: 20,
-                                                        height: 20,
-                                                        color,
-                                                        flexShrink: 0,
-                                                    }}
-                                                />
+                                            <div style={{ width: 20, flexShrink: 0, marginTop: "4px" }}>
+                                                {showSpeakerIcon && (
+                                                    <UserIcon
+                                                        style={{
+                                                            width: 20,
+                                                            height: 20,
+                                                            color,
+                                                        }}
+                                                    />
+                                                )}
                                             </div>
                                             <div
                                                 style={{
@@ -1191,6 +1565,32 @@ export default function DubbingWorkspace() {
                     __html: `
                 .animate-spin { animation: spin 1s linear infinite; }
                 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+                
+                .range-handle::-webkit-slider-thumb {
+                    pointer-events: auto;
+                    appearance: none;
+                    width: 6px;
+                    height: 24px;
+                    border-radius: 3px;
+                    background: var(--primary);
+                    border: none;
+                    cursor: pointer;
+                    box-shadow: 0 0 4px rgba(0,0,0,0.3);
+                    transition: transform 0.1s;
+                }
+                .range-handle::-webkit-slider-thumb:hover {
+                    transform: scale(1.2);
+                }
+                .range-handle::-moz-range-thumb {
+                    pointer-events: auto;
+                    width: 6px;
+                    height: 24px;
+                    border-radius: 3px;
+                    background: var(--primary);
+                    border: none;
+                    cursor: pointer;
+                    box-shadow: 0 0 4px rgba(0,0,0,0.3);
+                }
             `,
                 }}
             />
