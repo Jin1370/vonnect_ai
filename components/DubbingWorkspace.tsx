@@ -682,7 +682,7 @@ export default function DubbingWorkspace() {
                     
                     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
                         {previewUrl && (
-                            <div style={{ width: "100%", aspectRatio: "16/9", background: "#000", borderRadius: "16px", overflow: "hidden", position: "relative" }}>
+                            <div style={{ width: "100%", maxWidth: "100%", aspectRatio: "16/9", background: "#000", borderRadius: "16px", overflow: "hidden", position: "relative" }}>
                                 <video 
                                     controls
                                     src={previewUrl} 
@@ -702,7 +702,7 @@ export default function DubbingWorkspace() {
                                             v.currentTime = cropStart;
                                         }
                                     }}
-                                    style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                                    style={{ width: "100%", height: "100%", objectFit: "contain", maxWidth: "100%" }}
                                 />
                                 <div style={{ position: "absolute", bottom: "10px", right: "10px", padding: "4px 8px", background: "rgba(0,0,0,0.6)", color: "white", borderRadius: "6px", fontSize: "0.75rem", fontFamily: "monospace" }}>
                                     Preview at {new Date(cropStart * 1000).toISOString().substr(14, 5)}
@@ -1186,8 +1186,8 @@ export default function DubbingWorkspace() {
 
                         <div style={{ 
                             display: "grid", 
-                            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", 
-                            gap: "1.5rem", 
+                            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", 
+                            gap: "1rem", 
                             marginBottom: "1.5rem" 
                         }}>
                             {/* Original Player */}
